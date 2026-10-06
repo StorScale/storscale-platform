@@ -4,16 +4,17 @@
      metrics-only user, which can read no data;
   2. the Helm chart's alert rules load, with no errors;
   3. the four Grafana dashboards' queries return data from Prometheus;
-  4. a failed drive (here, emptied under load, as a replaced disk looks) shows
-     up: Buckets reports it offline and the erasure set degraded, and the
-     alerts for both start.
+  4. people sign in to Grafana with Keycloak: engineers (bob) as Editors,
+     analysts (alice) as Viewers; anyone in neither group (carol) is refused;
+  5. a failed drive shows up and recovers: made unreadable under load, as a
+     failing disk is, Buckets reports it offline and the erasure set degraded,
+     and the alerts for both start; once it's readable again, it's back online
+     and the drive-offline alert stops.
 
-Buckets should also format the empty drive back into its slot and heal it,
-but under write load that still loses a race at times (writes that reach the
-drive before Buckets notices it changed make it look like a drive holding
-data), so this doesn't check it yet.
+(An emptied drive doesn't make a reliable check: Buckets formats it back into
+its slot within seconds, often before Prometheus's next scrape sees it.)
 """
-import glob
+import html
 import json
 import os
 import re
@@ -26,6 +27,7 @@ from lakekit import check, env, finish, s3
 
 PROM = "http://prometheus:9090/api/v1"
 GRAFANA = "http://grafana:3000"
+GRAFANA_URL = os.environ["MONITORING_URL"]  # through the gateway, as a browser
 DASHBOARDS = "/dashboards/*.json"
 VARS = {"$namespace": "local", "$cluster": "store", "${namespace}": "local", "${cluster}": "store",
         "$__rate_interval": "1m", "$__interval": "15s", "$__range": "10m", "${__rate_interval}": "1m"}
@@ -65,6 +67,19 @@ def dashboard_queries():
         panels = [p for p in dash["panels"] if p.get("type") != "row"]
         out[dash["title"]] = [(p.get("title", ""), t["expr"]) for p in panels for t in p.get("targets", []) if t.get("expr")]
     return out
+
+
+def grafana_role(user):
+    """Sign in to Grafana through Keycloak's login form; the role Grafana gave them, or None."""
+    s = requests.Session()
+    r = s.get(f"{GRAFANA_URL}/login/generic_oauth", timeout=30)
+    form = re.search(r'<form[^>]*id="kc-form-login"[^>]*action="([^"]+)"', r.text)
+    if not form:
+        return None
+    s.post(html.unescape(form.group(1)), timeout=60,
+           data={"username": user, "password": env["LAKEHOUSE_USER_PASSWORD"], "credentialId": ""})
+    me = s.get(f"{GRAFANA_URL}/api/user/orgs", timeout=30)
+    return me.json()[0]["role"] if me.ok and me.json() else None
 
 
 def main():
@@ -112,16 +127,31 @@ def main():
     check("the dashboards' queries return data", total - len(empty) >= total * 0.75,
           f"{total - len(empty)} of {total} queries; empty: {'; '.join(sorted(set(empty)))}")
 
-    # 4. A failed drive.
-    for p in glob.glob("/drive3/*") + glob.glob("/drive3/.*"):
-        os.system(f"rm -rf '{p}'")
-    offline = wait(lambda: (value("max(minio_cluster_drive_offline_total)") or 0) >= 1, 180)
-    check("an emptied drive shows up as offline", offline,
+    # 4. Keycloak sign-in.
+    roles = {u: grafana_role(u) for u in ("bob", "alice", "carol")}
+    check("people sign in to Grafana with Keycloak: engineers edit, analysts view",
+          roles["bob"] == "Editor" and roles["alice"] == "Viewer", f"bob {roles['bob']}, alice {roles['alice']}")
+    check("people in neither group can't sign in to Grafana", roles["carol"] is None, f"carol {roles['carol']}")
+
+    # 5. A failed drive, and its recovery. Unreadable until it's restored.
+    os.chmod("/drive3", 0o000)
+    try:
+        offline = wait(lambda: (value("max(minio_cluster_drive_offline_total)") or 0) >= 1, 180)
+        check("a failed drive shows up as offline", offline,
+              f"drives online {value('max(minio_cluster_drive_online_total)'):.0f}, offline "
+              f"{value('max(minio_cluster_drive_offline_total)'):.0f}")
+        started = wait(lambda: (lambda a: a if {"BucketsDriveOffline", "BucketsErasureSetDegraded"} <= set(a) else None)(alerts()), 180)
+        check("the drive-offline and degraded-set alerts start", started,
+              ", ".join(f"{k} {v}" for k, v in sorted((started or alerts()).items())) or "no alerts")
+    finally:
+        os.chmod("/drive3", 0o755)
+    online = wait(lambda: value("max(minio_cluster_drive_offline_total)") == 0, 180)
+    check("once it's readable again, the drive is back online", online,
           f"drives online {value('max(minio_cluster_drive_online_total)'):.0f}, offline "
           f"{value('max(minio_cluster_drive_offline_total)'):.0f}")
-    started = wait(lambda: (lambda a: a if {"BucketsDriveOffline", "BucketsErasureSetDegraded"} <= set(a) else None)(alerts()), 180)
-    check("the drive-offline and degraded-set alerts start", started,
-          ", ".join(f"{k} {v}" for k, v in sorted((started or alerts()).items())) or "no alerts")
+    stopped = wait(lambda: "BucketsDriveOffline" not in alerts(), 180)
+    check("... and the drive-offline alert stops", stopped,
+          ", ".join(f"{k} {v}" for k, v in sorted(alerts().items())) or "no alerts")
 
     finish()
 

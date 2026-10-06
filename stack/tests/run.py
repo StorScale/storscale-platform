@@ -3,7 +3,7 @@
 Runs the Buckets integration guides' checks against the one platform, one
 suite at a time. The suites share the lakehouse's sales tables, so they're
 loaded afresh before each suite that reads them. monitoring runs last: it
-empties one of Buckets' four drives, as a failed disk would.
+fails one of Buckets' four drives for a minute, as a failing disk would.
 """
 import subprocess
 import sys

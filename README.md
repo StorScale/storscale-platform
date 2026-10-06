@@ -26,6 +26,8 @@ bin/storscale test      # the end-to-end checks
 
 Then open http://storscale.localhost:8800 and sign in as `alice` (an analyst) or `bob` (an engineer). Their password is `LAKEHOUSE_USER_PASSWORD` in [stack/.env](stack/.env). Every password there is a local test value.
 
+One Keycloak sign-in covers JupyterHub, Superset, Airflow and Grafana. Ranger is for administrators: sign in as `admin` with `RANGER_PASSWORD`.
+
 | | |
 |---|---|
 | Notebooks (JupyterHub) | http://notebooks.storscale.localhost:8800 |
