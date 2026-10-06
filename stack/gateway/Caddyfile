@@ -1,0 +1,48 @@
+# The gateway: one domain, a name per tool, all on STORSCALE_PORT.
+{
+	auto_https off
+	admin off
+}
+
+(proxy) {
+	reverse_proxy {args[0]}
+}
+
+http://{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
+	root * /srv/home
+	file_server
+}
+
+http://auth.{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
+	import proxy keycloak:8080
+}
+
+http://notebooks.{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
+	import proxy jupyterhub:8000
+}
+
+http://dashboards.{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
+	import proxy superset:8088
+}
+
+http://pipelines.{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
+	import proxy airflow:8090
+}
+
+http://monitoring.{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
+	import proxy grafana:3000
+}
+
+http://access.{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
+	import proxy ranger-admin:6080
+}
+
+http://s3.{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
+	import proxy buckets:9000
+}
+
+# Any other name: the health check, and nothing else.
+http://:{$STORSCALE_PORT} {
+	respond /healthz "ok" 200
+	respond "Not found: use http://{$STORSCALE_DOMAIN}:{$STORSCALE_PORT}" 404
+}

@@ -39,7 +39,7 @@ The first users are data engineers and analysts. ML and GenAI wait until there a
 ```
             browser ── https://platform.example.com
                 │
-        ┌───────▼────────┐  one domain, path-routed: /, /sql, /notebooks, /dashboards, /pipelines, /catalog, /grafana
+        ┌───────▼────────┐  one domain, a name per tool: auth., notebooks., dashboards., pipelines., monitoring., catalog.
         │  gateway       │  (Envoy Gateway / ingress; TLS)
         └───┬────────┬───┘
             │        │ tool UIs, behind the same session
@@ -57,7 +57,8 @@ The first users are data engineers and analysts. ML and GenAI wait until there a
 - **`platform/web`:** React 18 + TypeScript + Vite. It starts from the Buckets console's shell, theme tokens, `call()` wrapper and components. Native pages cover what crosses tools: Home, Projects, Catalog and lineage, Access, Runs, and Health. Each tool's own UI opens inside the shell, embedded or in its own tab:
   - **Superset:** its embedded SDK, with guest tokens.
   - **Grafana:** panels embedded in the shell.
-  - **JupyterLab and Airflow:** under paths on the same domain, with their own OIDC sign-in. Keycloak's SSO session makes that sign-in silent.
+  - **JupyterLab and Airflow:** under names on the same domain, with their own OIDC sign-in. Keycloak's SSO session makes that sign-in silent.
+  - **Names, not paths:** Superset and Ranger don't run well under a path prefix, so each tool gets a name of its own under one domain (`notebooks.storscale.localhost`). Browsers resolve `*.localhost` to the machine itself, so a laptop needs no hosts file. Inside the stack the same names lead to the gateway, so Keycloak's tokens have one issuer.
 - **`platformd`:** a backend-for-frontend, the same design as consoled:
   - OIDC sign-in, with tokens kept server-side in an encrypted cookie;
   - calls to each tool's API with the user's token, or by impersonation where the tool needs it (Trino);

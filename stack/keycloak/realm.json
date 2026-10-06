@@ -1,0 +1,255 @@
+{
+  "realm": "lakehouse",
+  "enabled": true,
+  "sslRequired": "none",
+  "accessTokenLifespan": 900,
+  "groups": [
+    {
+      "name": "analysts"
+    },
+    {
+      "name": "engineers"
+    },
+    {
+      "name": "pipelines"
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "alice@example.com",
+      "firstName": "Alice",
+      "lastName": "Analyst",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${LAKEHOUSE_USER_PASSWORD}",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/analysts"
+      ]
+    },
+    {
+      "username": "bob",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "bob@example.com",
+      "firstName": "Bob",
+      "lastName": "Engineer",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${LAKEHOUSE_USER_PASSWORD}",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/engineers"
+      ]
+    },
+    {
+      "username": "carol",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "carol@example.com",
+      "firstName": "Carol",
+      "lastName": "Contractor",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${LAKEHOUSE_USER_PASSWORD}",
+          "temporary": false
+        }
+      ],
+      "groups": []
+    },
+    {
+      "username": "service-account-airflow-pipelines",
+      "enabled": true,
+      "serviceAccountClientId": "airflow-pipelines",
+      "groups": [
+        "/pipelines"
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "lakehouse",
+      "name": "Lakehouse (Trino and Buckets)",
+      "enabled": true,
+      "publicClient": true,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "redirectUris": [
+        "http://localhost:*",
+        "https://localhost:*"
+      ],
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "lakehouse",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "jupyterhub",
+      "name": "JupyterHub",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${JUPYTERHUB_OAUTH_SECRET:jupyterhub-oauth-secret-change-me}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://notebooks.${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}/hub/oauth_callback"
+      ],
+      "webOrigins": [
+        "http://notebooks.${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}"
+      ],
+      "attributes": {
+        "post.logout.redirect.uris": "http://notebooks.${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "audience: lakehouse",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "lakehouse",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "superset",
+      "name": "Apache Superset",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${SUPERSET_OAUTH_SECRET:superset-oauth-secret-change-me}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://dashboards.${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}/oauth-authorized/keycloak"
+      ],
+      "webOrigins": [
+        "http://dashboards.${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}"
+      ],
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "airflow",
+      "name": "Apache Airflow",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${AIRFLOW_OAUTH_SECRET:airflow-oauth-secret-change-me}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://pipelines.${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}/auth/oauth-authorized/keycloak"
+      ],
+      "webOrigins": [
+        "http://pipelines.${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}"
+      ],
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "airflow-pipelines",
+      "name": "Airflow pipelines (service account)",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${AIRFLOW_PIPELINES_SECRET:airflow-pipelines-secret-change-me}",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "audience: lakehouse",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "lakehouse",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ]
+}
