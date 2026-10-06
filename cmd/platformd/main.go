@@ -17,6 +17,9 @@
 //	PLATFORM_WEB_DIR      the web app's files (/usr/share/storscale/web)
 //	STORE_URL, STORE_BUCKET, STORE_ACCESS_KEY, STORE_SECRET_KEY
 //	                      the project store (Buckets); without it, there are no projects
+//	CATALOG_URL, CATALOG_TOKEN_FILE
+//	                      the catalog (OpenMetadata), and the token catalog-sync shares; without
+//	                      them, there's no Flow view
 //
 // `platformd healthcheck` checks a running platformd, for container health checks.
 package main
@@ -87,6 +90,7 @@ type config struct {
 	Groups, AdminGroups                                   []string
 	Listen, WebDir                                        string
 	StoreURL, StoreBucket, StoreAccessKey, StoreSecretKey string
+	CatalogURL, CatalogTokenFile                          string
 }
 
 func (c config) issuer() string { return c.KeycloakURL + "/realms/" + c.Realm }
@@ -121,6 +125,7 @@ func configFromEnv(get func(string) string) (config, error) {
 		WebDir:       or("PLATFORM_WEB_DIR", "/usr/share/storscale/web"),
 		StoreURL:     get("STORE_URL"), StoreBucket: or("STORE_BUCKET", "storscale-platform"),
 		StoreAccessKey: get("STORE_ACCESS_KEY"), StoreSecretKey: get("STORE_SECRET_KEY"),
+		CatalogURL: get("CATALOG_URL"), CatalogTokenFile: or("CATALOG_TOKEN_FILE", "/catalog/token"),
 	}
 	c.KeycloakDirectURL = strings.TrimRight(or("KEYCLOAK_DIRECT_URL", c.KeycloakURL), "/")
 	var missing []string

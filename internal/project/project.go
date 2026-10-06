@@ -58,7 +58,21 @@ type Tables struct {
 	Catalog   string      `json:"catalog,omitempty"`   // default iceberg
 	Namespace string      `json:"namespace,omitempty"` // default: the project's name
 	Readers   *ReaderView `json:"readers,omitempty"`
+	Checks    []Check     `json:"checks,omitempty"`
 }
+
+// A Check is a data-quality test on one of the project's tables. The catalog
+// runs it, and shows its result on the table.
+type Check struct {
+	Table  string `json:"table"`
+	Column string `json:"column,omitempty"` // for unique and notNull
+	Check  string `json:"check"`            // one of CheckTypes
+	Min    *int64 `json:"min,omitempty"`    // for rowCount
+	Max    *int64 `json:"max,omitempty"`
+}
+
+// CheckTypes are the checks a project can ask for.
+var CheckTypes = []string{"unique", "notNull", "rowCount"}
 
 // ReaderView narrows what readers see. Editors and pipelines see everything.
 type ReaderView struct {
@@ -177,6 +191,20 @@ func (p *Project) Validate() error {
 				if !slices.Contains(MaskTypes, m.Type) {
 					bad("readers: mask type %q must be one of %s", m.Type, strings.Join(MaskTypes, ", "))
 				}
+			}
+		}
+	}
+	if t := p.Spec.Tables; t != nil {
+		for i, c := range t.Checks {
+			switch {
+			case !identifierRE.MatchString(c.Table):
+				bad("check %d: table %q isn't an identifier", i+1, c.Table)
+			case !slices.Contains(CheckTypes, c.Check):
+				bad("check %d: %q must be one of %s", i+1, c.Check, strings.Join(CheckTypes, ", "))
+			case c.Check != "rowCount" && !identifierRE.MatchString(c.Column):
+				bad("check %d: %s needs a column", i+1, c.Check)
+			case c.Check == "rowCount" && c.Min == nil && c.Max == nil:
+				bad("check %d: rowCount needs a min, a max, or both", i+1)
 			}
 		}
 	}

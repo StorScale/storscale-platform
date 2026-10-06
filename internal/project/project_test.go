@@ -59,6 +59,23 @@ func TestValidateSaysEverythingThatsWrong(t *testing.T) {
 	}
 }
 
+func TestChecks(t *testing.T) {
+	ok := strings.Replace(sales, `"files": {},`, `"files": {},`, 1)
+	ok = strings.Replace(ok, `"tables": {"readers"`, `"tables": {"checks": [{"table": "orders", "column": "id", "check": "unique"},
+	  {"table": "orders", "check": "rowCount", "min": 1}], "readers"`, 1)
+	if _, err := Parse([]byte(ok)); err != nil {
+		t.Fatal(err)
+	}
+	bad := strings.Replace(sales, `"tables": {"readers"`, `"tables": {"checks": [{"table": "orders", "check": "unique"},
+	  {"table": "orders", "check": "rowCount"}, {"table": "orders", "column": "id", "check": "fresh"}], "readers"`, 1)
+	_, err := Parse([]byte(bad))
+	for _, want := range []string{"unique needs a column", "rowCount needs a min", `"fresh" must be one of`} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("error %v doesn't mention %s", err, want)
+		}
+	}
+}
+
 func TestBucketsPolicies(t *testing.T) {
 	p, _ := Parse([]byte(sales))
 	pol := p.BucketsPolicies()

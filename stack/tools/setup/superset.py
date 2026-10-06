@@ -24,13 +24,14 @@ POLICIES = lakehouse.POLICIES + [
     # BI tools read table metadata from Trino's system catalog: system.jdbc
     # and system.metadata (Trino's SQLAlchemy and JDBC drivers do). Trino
     # filters those tables to what each person may see anyway.
+    # (So does the catalog's service user, openmetadata, to read the tables.)
     {"name": "BI tools: system catalog", "resources": res(catalog="system"),
-     "policyItems": [allow(["use", "show"], groups=PEOPLE)]},
+     "policyItems": [allow(["use", "show"], groups=PEOPLE, users=["openmetadata"])]},
     {"name": "BI tools: system metadata schemas", "resources": res(catalog="system", schema=["jdbc", "metadata"]),
-     "policyItems": [allow(["use", "show"], groups=PEOPLE)]},
+     "policyItems": [allow(["use", "show"], groups=PEOPLE, users=["openmetadata"])]},
     {"name": "BI tools: system metadata tables",
      "resources": res(catalog="system", schema=["jdbc", "metadata"], table="*", column="*"),
-     "policyItems": [allow(["select"], groups=PEOPLE)]},
+     "policyItems": [allow(["select"], groups=PEOPLE, users=["openmetadata"])]},
 ]
 
 if __name__ == "__main__":

@@ -63,4 +63,10 @@ if __name__ == "__main__":
     orders.to_parquet(buf, index=False)
     s3_root().put_object(Bucket="sales", Key="datasets/orders.parquet", Body=buf.getvalue())
     log("Buckets: sales/datasets/orders.parquet (6 orders)")
+    # The table the sales pipeline rebuilds, by region (it may change rows,
+    # not make tables).
+    from lakekit import sql
+    sql("bob", "CREATE TABLE IF NOT EXISTS orders_by_region (region varchar, orders bigint, amount decimal(12,2))",
+        catalog="iceberg", schema="sales")
+    log("data: iceberg.sales.orders_by_region (empty, for the pipeline)")
     log("done")

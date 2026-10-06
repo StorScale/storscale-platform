@@ -9,6 +9,7 @@
 #   http://dashboards.storscale.localhost:8800   Superset
 #   http://pipelines.storscale.localhost:8800    Airflow
 #   http://monitoring.storscale.localhost:8800   Grafana
+#   http://catalog.storscale.localhost:8800      OpenMetadata: the catalog, lineage and data quality
 #   http://access.storscale.localhost:8800       Apache Ranger (administrators)
 #   http://s3.storscale.localhost:8800           Buckets' S3 API
 #
@@ -79,6 +80,55 @@ x-airflow: &airflow
     - ./airflow/webserver_config.py:/opt/airflow/webserver_config.py:ro
     - ./airflow/dags:/opt/airflow/dags:ro
     - tls:/tls:ro
+    - catalog:/catalog:ro   # the catalog's token, for reporting lineage
+
+# OpenMetadata's server, and its one-off database migration.
+x-openmetadata: &openmetadata
+  image: docker.getcollate.io/openmetadata/server:2.0.4
+  environment:
+    OPENMETADATA_HEAP_OPTS: -Xmx640m -Xms320m
+    SERVER_HOST_API_URL: http://openmetadata:8585/api
+    DB_DRIVER_CLASS: org.postgresql.Driver
+    DB_SCHEME: postgresql
+    DB_PARAMS: sslmode=disable
+    DB_HOST: openmetadata-db
+    DB_PORT: "5432"
+    OM_DATABASE: openmetadata_db
+    DB_USER: openmetadata_user
+    DB_USER_PASSWORD: ${OPENMETADATA_DB_PASSWORD}
+    SEARCH_TYPE: opensearch
+    ELASTICSEARCH_HOST: openmetadata-search
+    ELASTICSEARCH_PORT: "9200"
+    ELASTICSEARCH_SCHEME: http
+    # No Airflow of its own: the platform runs ingestion and tests (catalog-sync).
+    PIPELINE_SERVICE_CLIENT_ENABLED: "false"
+    FERNET_KEY: ${OPENMETADATA_FERNET_KEY}
+    # People sign in with Keycloak (a confidential client: the server does the
+    # OpenID Connect flow). Bots, such as the ingestion bot, use OpenMetadata's
+    # own JWTs, so the server checks both kinds of key.
+    AUTHENTICATION_PROVIDER: custom-oidc
+    AUTHENTICATION_CLIENT_TYPE: confidential
+    AUTHENTICATION_CLIENT_ID: openmetadata
+    AUTHENTICATION_AUTHORITY: http://auth.${STORSCALE_DOMAIN}:${STORSCALE_PORT}/realms/lakehouse
+    AUTHENTICATION_PUBLIC_KEYS: "[http://auth.${STORSCALE_DOMAIN}:${STORSCALE_PORT}/realms/lakehouse/protocol/openid-connect/certs,http://localhost:8585/api/v1/system/config/jwks]"
+    AUTHENTICATION_CALLBACK_URL: http://catalog.${STORSCALE_DOMAIN}:${STORSCALE_PORT}/callback
+    AUTHENTICATION_JWT_PRINCIPAL_CLAIMS: "[preferred_username,email,sub]"
+    OIDC_TYPE: Keycloak
+    OIDC_CLIENT_ID: openmetadata
+    OIDC_CLIENT_SECRET: ${OPENMETADATA_OAUTH_SECRET}
+    OIDC_DISCOVERY_URI: http://auth.${STORSCALE_DOMAIN}:${STORSCALE_PORT}/realms/lakehouse/.well-known/openid-configuration
+    OIDC_CALLBACK: http://catalog.${STORSCALE_DOMAIN}:${STORSCALE_PORT}/callback
+    OIDC_SERVER_URL: http://catalog.${STORSCALE_DOMAIN}:${STORSCALE_PORT}
+    OIDC_SCOPE: openid email profile
+    # Use the person's Keycloak session, as the other tools do: by default
+    # OpenMetadata asks Keycloak for a fresh sign-in (max_age=0). OpenMetadata
+    # copies these into its database when it first starts, and reads them from
+    # there afterwards.
+    OIDC_MAX_AGE: "28800"
+    # Administrators: the platform operator's service account (which sets
+    # the catalog up) and bob. Everyone else who signs in gets their own user.
+    AUTHORIZER_ADMIN_PRINCIPALS: "[service-account-platform-operator,bob]"
+    AUTHORIZER_PRINCIPAL_DOMAIN: ${STORSCALE_DOMAIN}
 
 networks:
   default:
@@ -87,12 +137,14 @@ networks:
 services:
   # --- The gateway: one domain, a name per tool --------------------------------
   gateway:
+    restart: unless-stopped
     image: caddy:2.11.2-alpine
     environment:
       STORSCALE_DOMAIN: ${STORSCALE_DOMAIN}
       STORSCALE_PORT: ${STORSCALE_PORT}
     volumes:
       - ./gateway/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./gateway/catalog:/srv/_storscale:ro
     ports: ["${STORSCALE_BIND:-127.0.0.1}:${STORSCALE_PORT}:${STORSCALE_PORT}"]
     networks:
       default:
@@ -103,6 +155,7 @@ services:
           - dashboards.${STORSCALE_DOMAIN}
           - pipelines.${STORSCALE_DOMAIN}
           - monitoring.${STORSCALE_DOMAIN}
+          - catalog.${STORSCALE_DOMAIN}
           - access.${STORSCALE_DOMAIN}
           - s3.${STORSCALE_DOMAIN}
     healthcheck:
@@ -120,6 +173,7 @@ services:
       - keycloak-keys:/keys
 
   keycloak:
+    restart: unless-stopped
     image: quay.io/keycloak/keycloak:26.8.0
     # The realm (keycloak/realm.json) is imported afresh on each start, with
     # the signing key from keycloak-keys.
@@ -130,6 +184,8 @@ services:
         export KC_SIGNING_CERT="$$(grep -v -- ----- /keys/cert.pem | tr -d '\n')"
         exec /opt/keycloak/bin/kc.sh start-dev --import-realm
     environment:
+      # Its heap, set: without one, a JVM sizes it from the machine's memory.
+      JAVA_OPTS_KC_HEAP: -Xms128m -Xmx384m
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       # One issuer for everyone: tokens name the gateway's address, whoever asks.
@@ -145,6 +201,7 @@ services:
       OPERATOR_CLIENT_SECRET: ${OPERATOR_CLIENT_SECRET}
       SUPERSET_OAUTH_SECRET: ${SUPERSET_OAUTH_SECRET}
       GRAFANA_OAUTH_SECRET: ${GRAFANA_OAUTH_SECRET}
+      OPENMETADATA_OAUTH_SECRET: ${OPENMETADATA_OAUTH_SECRET}
       AIRFLOW_OAUTH_SECRET: ${AIRFLOW_OAUTH_SECRET}
       AIRFLOW_PIPELINES_SECRET: ${AIRFLOW_PIPELINES_SECRET}
     volumes:
@@ -160,6 +217,7 @@ services:
 
   # --- The platform: its web app, and platformd behind it -----------------------------
   platformd:
+    restart: unless-stopped
     image: ${PLATFORMD_IMAGE}
     environment:
       PLATFORM_URL: http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}
@@ -170,6 +228,10 @@ services:
       STORE_URL: http://buckets:9000
       STORE_ACCESS_KEY: ${PLATFORM_STORE_ACCESS_KEY}
       STORE_SECRET_KEY: ${PLATFORM_STORE_SECRET_KEY}
+      # The catalog, for each project's Flow view, read with the token catalog-sync shares.
+      CATALOG_URL: http://openmetadata:8585
+    volumes:
+      - catalog:/catalog:ro
     depends_on:
       keycloak: {condition: service_healthy}
     healthcheck:
@@ -180,6 +242,7 @@ services:
   # Applies projects to Keycloak, Ranger, Buckets and Nessie, and writes
   # back each one's status.
   platform-operator:
+    restart: unless-stopped
     image: ${PLATFORMD_IMAGE}
     entrypoint: ["/usr/bin/platform-operator"]
     environment:
@@ -210,6 +273,7 @@ services:
       - drive4:/data4
 
   buckets:
+    restart: unless-stopped
     image: ${BUCKETS_IMAGE}
     command: ["server", "--address", ":9000", "/data1", "/data2", "/data3", "/data4"]
     environment:
@@ -230,6 +294,7 @@ services:
 
   # --- Access: Apache Ranger ---------------------------------------------------------
   ranger-db:
+    restart: unless-stopped
     image: apache/ranger-db:2.9.0
     environment:
       POSTGRES_PASSWORD: ${RANGER_PASSWORD}
@@ -243,10 +308,14 @@ services:
       retries: 60
 
   ranger-solr:
+    restart: unless-stopped
     image: apache/ranger-solr:2.9.0
     command: ["solr-precreate", "ranger_audits", "/opt/solr/server/solr/configsets/ranger_audits/"]
+    environment:
+      SOLR_HEAP: 256m
 
   ranger-admin:
+    restart: unless-stopped
     image: apache/ranger:2.9.0
     environment:
       RANGER_DB_TYPE: postgres
@@ -276,8 +345,10 @@ services:
 
   # --- Tables: Nessie (the Iceberg catalog) and Trino --------------------------------
   nessie:
+    restart: unless-stopped
     image: ghcr.io/projectnessie/nessie:0.108.8
     environment:
+      - JAVA_OPTS_APPEND=-Xms64m -Xmx256m
       - nessie.version.store.type=ROCKSDB
       - nessie.version.store.persist.rocks.database-path=/home/nessie/catalog
       - nessie.catalog.default-warehouse=warehouse
@@ -301,11 +372,12 @@ services:
   # Trino's password file (bcrypt): Superset signs in to Trino as "superset".
   trino-passwords:
     <<: *tools
-    command: ["sh", "-c", "htpasswd -B -C 10 -b -c /auth/password.db superset \"$$SUPERSET_TRINO_PASSWORD\" && chmod 644 /auth/password.db"]
+    command: ["sh", "-c", "htpasswd -B -C 10 -b -c /auth/password.db superset \"$$SUPERSET_TRINO_PASSWORD\" && htpasswd -B -C 10 -b /auth/password.db openmetadata \"$$OPENMETADATA_TRINO_PASSWORD\" && chmod 644 /auth/password.db"]
     volumes:
       - trino-auth:/auth
 
   trino:
+    restart: unless-stopped
     image: trinodb/trino:483
     environment:
       KEYCLOAK_URL: http://auth.${STORSCALE_DOMAIN}:${STORSCALE_PORT}
@@ -323,7 +395,7 @@ services:
       - tls:/etc/trino/tls:ro
       - trino-auth:/etc/trino/auth:ro
     ports: ["${STORSCALE_BIND:-127.0.0.1}:8443:8443"]
-    mem_limit: 3g
+    mem_limit: 2g   # its heap is 80% of this (Trino's image); queries get at most 1 GB
     depends_on:
       tls: {condition: service_completed_successfully}
       trino-passwords: {condition: service_completed_successfully}
@@ -351,6 +423,7 @@ services:
     command: ["true"]
 
   jupyterhub:
+    restart: unless-stopped
     build: {context: ./jupyterhub/image, target: hub}
     image: storscale-jupyterhub
     command: ["jupyterhub", "-f", "/etc/jupyterhub/jupyterhub_config.py"]
@@ -373,6 +446,7 @@ services:
 
   # --- Dashboards: Superset ---------------------------------------------------------------
   superset-db:
+    restart: unless-stopped
     image: postgres:18-bookworm
     environment:
       POSTGRES_DB: superset
@@ -393,6 +467,7 @@ services:
       superset-db: {condition: service_healthy}
 
   superset:
+    restart: unless-stopped
     <<: *superset
     depends_on:
       superset-init: {condition: service_completed_successfully}
@@ -405,6 +480,7 @@ services:
 
   # --- Pipelines: Airflow -------------------------------------------------------------------
   airflow-db:
+    restart: unless-stopped
     image: postgres:18-bookworm
     environment:
       POSTGRES_DB: airflow
@@ -434,6 +510,7 @@ services:
 
   # The API server and UI.
   airflow:
+    restart: unless-stopped
     <<: *airflow
     command: ["api-server"]
     depends_on:
@@ -447,12 +524,14 @@ services:
       retries: 60
 
   airflow-scheduler:
+    restart: unless-stopped
     <<: *airflow
     command: ["scheduler"]
     depends_on:
       airflow: {condition: service_healthy}
 
   airflow-dag-processor:
+    restart: unless-stopped
     <<: *airflow
     command: ["dag-processor"]
     depends_on:
@@ -460,6 +539,7 @@ services:
 
   # --- Monitoring: Prometheus and Grafana -------------------------------------------------
   prometheus:
+    restart: unless-stopped
     image: prom/prometheus:v3.13.4
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -473,6 +553,7 @@ services:
       retries: 60
 
   grafana:
+    restart: unless-stopped
     image: grafana/grafana:13.0.10
     environment:
       GF_SERVER_ROOT_URL: http://monitoring.${STORSCALE_DOMAIN}:${STORSCALE_PORT}
@@ -515,8 +596,85 @@ services:
       interval: 5s
       retries: 60
 
+  # --- The catalog: OpenMetadata, with its own database and search -------------------
+  openmetadata-db:
+    restart: unless-stopped
+    image: postgres:18-bookworm
+    environment:
+      POSTGRES_DB: openmetadata_db
+      POSTGRES_USER: openmetadata_user
+      POSTGRES_PASSWORD: ${OPENMETADATA_DB_PASSWORD}
+    command: ["postgres", "-c", "work_mem=10MB"]
+    volumes:
+      - openmetadata-db:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openmetadata_user -d openmetadata_db"]
+      interval: 5s
+      retries: 60
+
+  openmetadata-search:
+    restart: unless-stopped
+    build: ./catalog/opensearch
+    image: storscale-opensearch
+    environment:
+      discovery.type: single-node
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      DISABLE_SECURITY_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: -Xms384m -Xmx384m
+    volumes:
+      - openmetadata-search:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -qE '\"status\":\"(green|yellow)\"'"]
+      interval: 5s
+      start_period: 120s
+      retries: 60
+
+  openmetadata-migrate:
+    <<: *openmetadata
+    command: ["./bootstrap/openmetadata-ops.sh", "migrate"]
+    depends_on:
+      openmetadata-db: {condition: service_healthy}
+      openmetadata-search: {condition: service_healthy}
+
+  openmetadata:
+    restart: unless-stopped
+    <<: *openmetadata
+    depends_on:
+      openmetadata-migrate: {condition: service_completed_successfully}
+      keycloak: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8586/healthcheck"]
+      interval: 10s
+      start_period: 60s
+      retries: 60
+
+  # Keeps the catalog in step: Trino's tables, the projects' checks, and the
+  # ingestion bot's token in the catalog volume (for Airflow and platformd).
+  catalog-sync:
+    restart: unless-stopped
+    build: ./catalog/sync
+    image: storscale-catalog-sync
+    environment:
+      KEYCLOAK_DIRECT_URL: http://keycloak:8080
+      PIPELINES_URL: http://pipelines.${STORSCALE_DOMAIN}:${STORSCALE_PORT}
+      OPERATOR_CLIENT_SECRET: ${OPERATOR_CLIENT_SECRET}
+      OPENMETADATA_TRINO_PASSWORD: ${OPENMETADATA_TRINO_PASSWORD}
+      STORE_ACCESS_KEY: ${PLATFORM_STORE_ACCESS_KEY}
+      STORE_SECRET_KEY: ${PLATFORM_STORE_SECRET_KEY}
+    volumes:
+      - catalog:/catalog
+      - tls:/tls:ro
+    depends_on:
+      openmetadata: {condition: service_healthy}
+      setup-trino: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD", "test", "-s", "/catalog/token"]
+      interval: 5s
+      retries: 120
+
   # A little S3 traffic, so the storage dashboards have something to show.
   traffic:
+    restart: unless-stopped
     <<: *tools
     command: ["python", "-u", "/tools/traffic.py"]
     depends_on:
@@ -540,12 +698,16 @@ services:
   test-browser:
     image: mcr.microsoft.com/playwright/python:v1.63.0-noble
     command: ["sh", "-c", "pip install -q --root-user-action=ignore playwright==1.63.0 && python -u /tests/shell.py"]
+    shm_size: 1gb   # Chromium's shared memory: Docker's 64 MB crashes it on heavier pages
     env_file: .env
     volumes:
       - ./tests:/tests:ro
     profiles: ["test"]
 
 volumes:
+  catalog:
+  openmetadata-db:
+  openmetadata-search:
   keycloak-keys:
   drive1:
   drive2:

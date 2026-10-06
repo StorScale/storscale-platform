@@ -222,6 +222,43 @@ func (s *server) handleAccess(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"projects": projects, "people": people})
 }
 
+// handleFlow is a project's tables, the lineage between them, and their
+// checks, from the catalog: for the project's members and administrators.
+func (s *server) handleFlow(w http.ResponseWriter, r *http.Request) {
+	sess := s.signedIn(w, r)
+	if sess == nil {
+		return
+	}
+	if s.catalog == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "the catalog isn't set up (no CATALOG_URL)"})
+		return
+	}
+	views, err := s.views(r, sess.User)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "the project store isn't answering"})
+		return
+	}
+	for _, v := range views {
+		if v.Name != r.PathValue("name") || v.Spec == nil {
+			continue
+		}
+		t := v.Spec.Spec.Tables
+		if t == nil {
+			writeJSON(w, http.StatusOK, map[string]any{"tables": []any{}, "edges": []any{}})
+			return
+		}
+		flow, err := s.catalog.Flow(r.Context(), t.Catalog, t.Namespace)
+		if err != nil {
+			s.log.Error("flow", "project", v.Name, "error", err)
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, flow)
+		return
+	}
+	writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such project"})
+}
+
 type errorString string
 
 func (e errorString) Error() string { return string(e) }

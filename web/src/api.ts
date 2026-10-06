@@ -12,7 +12,7 @@ export type Tool = {
 };
 
 export type Session =
-  | { state: "signed-in"; user: User; tools: Tool[]; admin: boolean; projects: boolean }
+  | { state: "signed-in"; user: User; tools: Tool[]; admin: boolean; projects: boolean; flow: boolean }
   | { state: "refused"; user: User; error: string };
 
 // session is null when nobody is signed in.
@@ -22,7 +22,7 @@ export async function session(): Promise<Session | null> {
   const body = await res.json();
   if (res.status === 403) return { state: "refused", user: body.user, error: body.error };
   if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
-  return { state: "signed-in", user: body.user, tools: body.tools, admin: !!body.admin, projects: !!body.projects };
+  return { state: "signed-in", user: body.user, tools: body.tools, admin: !!body.admin, projects: !!body.projects, flow: !!body.flow };
 }
 
 export function signIn() {
@@ -93,3 +93,11 @@ export const putProject = (p: Project) => api<ProjectView>("PUT", `/api/projects
 export const deleteProject = (name: string) => api<void>("DELETE", `/api/projects/${encodeURIComponent(name)}`);
 export type AccessPerson = { username: string; roles: Record<string, string>; via: Record<string, string> };
 export const getAccess = () => api<{ projects: string[]; people: AccessPerson[] }>("GET", "/api/access");
+
+// --- A project's flow (from the catalog) --------------------------------------------
+
+export type FlowCheck = { name: string; status: string; result: string; when?: number };
+export type FlowTable = { name: string; fqn: string; columns: string[]; checks: FlowCheck[]; external?: boolean };
+export type FlowEdge = { from: string; to: string; pipeline?: string; columns: { from: string[]; to: string }[] };
+export type Flow = { tables: FlowTable[]; edges: FlowEdge[] };
+export const getFlow = (name: string) => api<Flow>("GET", `/api/projects/${encodeURIComponent(name)}/flow`);

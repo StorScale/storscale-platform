@@ -79,6 +79,18 @@ spec:
                               table: {type: string, pattern: '^[a-z_][a-z0-9_]{0,62}$'}
                               column: {type: string, pattern: '^[a-z_][a-z0-9_]{0,62}$'}
                               type: {type: string, enum: [MASK, MASK_SHOW_LAST_4, MASK_SHOW_FIRST_4, MASK_HASH, MASK_NULL, MASK_NONE, MASK_DATE_SHOW_YEAR]}
+                    checks:
+                      type: array
+                      description: Data-quality checks on the tables. The catalog runs them, and shows their results on the tables.
+                      items:
+                        type: object
+                        required: [table, check]
+                        properties:
+                          table: {type: string, pattern: '^[a-z_][a-z0-9_]{0,62}$'}
+                          column: {type: string, pattern: '^[a-z_][a-z0-9_]{0,62}$'}
+                          check: {type: string, enum: [unique, notNull, rowCount]}
+                          min: {type: integer}
+                          max: {type: integer}
                 files:
                   type: object
                   description: A bucket in Buckets.

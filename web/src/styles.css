@@ -126,3 +126,21 @@ textarea { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monosp
 .segmented button + button { border-left: 1px solid var(--line); }
 .segmented button.selected { background: var(--accent); color: var(--accent-fg); }
 .form-actions { display: flex; gap: 8px; justify-content: flex-end; margin: 20px 0; }
+
+/* The Flow view */
+.flow { position: relative; display: flex; gap: 120px; align-items: flex-start; padding: 16px 4px 24px; overflow-x: auto; }
+.flow-col { display: flex; flex-direction: column; gap: 24px; position: relative; z-index: 1; }
+.flow-table { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 200px; }
+.flow-table.external { border-style: dashed; }
+.flow-table h3 { margin: 0 0 6px; font-size: 14px; }
+.flow-table ul { list-style: none; margin: 0; padding: 0; }
+.flow-table .cols li { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--muted); padding: 1px 0; }
+.flow-table .checks-list { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); font-size: 12px; }
+.flow-table .checks-list li { padding: 2px 0; }
+.flow-lines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; z-index: 0; }
+.flow-lines path { fill: none; stroke: var(--accent); stroke-width: 2; cursor: pointer; }
+.flow-lines marker path { fill: var(--accent); stroke: none; }
+.flow-lines g.selected path { stroke-width: 3.5; }
+.flow-label { position: absolute; transform: translate(-50%, -50%); z-index: 2; font-size: 12px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--accent); color: var(--accent); background: var(--panel); }
+.flow-label.selected { background: var(--accent); color: var(--accent-fg); }
+tr.selected td { background: rgba(10, 102, 209, 0.08); }

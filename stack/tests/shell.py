@@ -104,18 +104,24 @@ def main():
             page.click(f"[data-testid=nav-{tool}]")
             frame, deadline = None, time.time() + 120
             while time.time() < deadline:
-                el = page.query_selector(f"[data-testid=frame-{tool}]")
-                frame = el.content_frame() if el else None
+                try:  # the app may swap the element while it renders; look again
+                    el = page.query_selector(f"[data-testid=frame-{tool}]")
+                    frame = el.content_frame() if el else None
+                except Exception:  # noqa: BLE001
+                    frame = None
                 if frame and re.search(where, frame.url):
                     break
                 time.sleep(1)
-            url = frame.url if frame else "no frame"
+            url = frame.url if frame and not frame.is_detached() else "no frame"
             shown = frame is not None and re.search(where, url) is not None
             if shown:
                 frame.wait_for_load_state("load")
             on_keycloak = frame is not None and AUTH_HOST in frame.url
             check(f"{tool} opens in the platform, signed in as alice", shown and not on_keycloak, url)
         check("one sign-in for all of them", len(sign_ins) == 1, f"{len(sign_ins)} Keycloak sign-in(s)")
+        catalog = page.get_attribute("[data-testid=nav-catalog]", "href") or ""
+        check("the catalog opens in a tab of its own, through the platform's launcher",
+              catalog.endswith("/_storscale/launch.html") and page.get_attribute("[data-testid=nav-catalog]", "target") == "_blank", catalog)
 
         # 3. Projects, as alice.
         page.click("[data-testid=nav-projects]")
@@ -124,6 +130,10 @@ def main():
         check("alice sees the sales project, as a reader", "reader" in row, " ".join(row.split()))
         check("... and can't make projects", page.query_selector("[data-testid=new-project]") is None
               and page.query_selector("[data-testid=nav-access]") is None, "no New project button, no Access page")
+        page.goto(f"{PLATFORM}/projects/sales/flow")
+        page.wait_for_selector("[data-testid=table-orders]", timeout=120_000)
+        names = [e.get_attribute("data-testid")[6:] for e in page.query_selector_all("[data-testid^=table-]")]
+        check("... and its Flow: the project's tables, from the catalog", {"orders", "orders_by_region", "payroll"} <= set(names), names)
 
         # 5 (before carol, who has a context of her own). Signing out.
         page.click("[data-testid=nav-sql]")

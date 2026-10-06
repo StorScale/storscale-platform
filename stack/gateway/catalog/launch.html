@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Opening the catalog</title>
+<style>
+  body { margin: 0; display: flex; align-items: center; justify-content: center; height: 100vh;
+         font: 14px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #6b7385; background: #fff; }
+</style>
+</head>
+<body>
+<p id="msg">Opening the catalog…</p>
+<script>
+  // The platform opens the catalog (OpenMetadata) here. OpenMetadata's app
+  // keeps its token in its service worker, and its sign-in can finish only
+  // once that worker is running, so this starts the worker (OpenMetadata's
+  // own, at its own scope), waits for it, then signs in: with the person's
+  // Keycloak session, without a form.
+  const login = "/api/v1/auth/login?redirectUri=" + encodeURIComponent(location.origin + "/auth/callback");
+  async function go() {
+    try {
+      const reg = await navigator.serviceWorker.register("/app-worker.js");
+      await navigator.serviceWorker.ready;
+      if (!navigator.serviceWorker.controller) {
+        // Let the worker take this page before leaving it.
+        await new Promise((resolve) => {
+          navigator.serviceWorker.addEventListener("controllerchange", resolve, { once: true });
+          setTimeout(resolve, 3000);
+        });
+      }
+      void reg;
+    } catch (e) {
+      document.getElementById("msg").textContent = "The catalog's sign-in needs a service worker: " + e.message;
+    }
+    location.replace(login);
+  }
+  go();
+</script>
+</body>
+</html>

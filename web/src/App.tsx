@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { session, Session, signIn, signOut, Tool, User } from "./api";
 import Access from "./pages/Access";
+import Flow from "./pages/Flow";
 import Home from "./pages/Home";
 import ProjectDetail from "./pages/ProjectDetail";
 import ProjectEditor from "./pages/ProjectEditor";
@@ -37,9 +38,13 @@ function Shell({ user, tools, admin, projects }: { user: User; tools: Tool[]; ad
         <NavLink to="/" end>Home</NavLink>
         {projects && <NavLink to="/projects" data-testid="nav-projects">Projects</NavLink>}
         <div className="nav-group">Work</div>
-        {work.map((t) => (
-          <NavLink key={t.id} to={`/tools/${t.id}`} data-testid={`nav-${t.id}`}>{t.name}</NavLink>
-        ))}
+        {work.map((t) =>
+          t.embedUrl ? (
+            <NavLink key={t.id} to={`/tools/${t.id}`} data-testid={`nav-${t.id}`}>{t.name}</NavLink>
+          ) : (
+            <a key={t.id} href={t.url} target="_blank" rel="noreferrer" data-testid={`nav-${t.id}`}>{t.name} <span aria-hidden>↗</span></a>
+          ),
+        )}
         {(adminTools.length > 0 || (admin && projects)) && <div className="nav-group">Administration</div>}
         {admin && projects && <NavLink to="/access" data-testid="nav-access">Access</NavLink>}
         {adminTools.map((t) => (
@@ -61,6 +66,7 @@ function Shell({ user, tools, admin, projects }: { user: User; tools: Tool[]; ad
           <Route path="/projects/new" element={<ProjectEditor />} />
           <Route path="/projects/:name" element={<ProjectDetail admin={admin} />} />
           <Route path="/projects/:name/edit" element={<ProjectEditor />} />
+          <Route path="/projects/:name/flow" element={<Flow />} />
           <Route path="/access" element={<Access />} />
           <Route path="*" element={<p>Page not found.</p>} />
         </Routes>

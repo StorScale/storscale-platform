@@ -343,6 +343,40 @@
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": true
+    },
+    {
+      "clientId": "openmetadata",
+      "name": "OpenMetadata",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${OPENMETADATA_OAUTH_SECRET:openmetadata-oauth-secret-change-me}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://catalog.${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}/callback",
+        "http://catalog.${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}/silent-callback"
+      ],
+      "webOrigins": [
+        "http://catalog.${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}"
+      ],
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ],
+      "attributes": {
+        "post.logout.redirect.uris": "http://catalog.${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}/*"
+      }
     }
   ],
   "components": {

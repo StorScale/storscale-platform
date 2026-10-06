@@ -161,7 +161,7 @@ func TestSignInAnalyst(t *testing.T) {
 	if code != http.StatusOK || body["user"].(map[string]any)["username"] != "alice" {
 		t.Fatalf("session: %d %v", code, body)
 	}
-	if got := strings.Join(toolIDs(body), ","); got != "notebooks,sql,dashboards,pipelines,monitoring" {
+	if got := strings.Join(toolIDs(body), ","); got != "notebooks,sql,dashboards,pipelines,catalog,monitoring" {
 		t.Errorf("alice's tools: %s (no administrators' tools)", got)
 	}
 }

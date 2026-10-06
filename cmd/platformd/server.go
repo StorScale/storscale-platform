@@ -19,6 +19,7 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 
+	"github.com/StorScale/storscale-platform/internal/catalog"
 	"github.com/StorScale/storscale-platform/internal/store"
 )
 
@@ -56,7 +57,8 @@ type server struct {
 	verifier *oidc.IDTokenVerifier
 	secure   bool // cookies only over HTTPS (or to localhost names, which browsers count as secure)
 	now      func() time.Time
-	store    *store.Store // nil: no projects
+	store    *store.Store    // nil: no projects
+	catalog  *catalog.Client // nil: no Flow view
 
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -94,6 +96,9 @@ func newServer(ctx context.Context, cfg config, log *slog.Logger) (*server, erro
 			return nil, err
 		}
 	}
+	if cfg.CatalogURL != "" {
+		s.catalog = catalog.New(cfg.CatalogURL, cfg.CatalogTokenFile, "trino")
+	}
 	go s.sweep(ctx)
 	return s, nil
 }
@@ -110,6 +115,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("PUT /api/projects/{name}", s.handlePutProject)
 	mux.HandleFunc("DELETE /api/projects/{name}", s.handleDeleteProject)
 	mux.HandleFunc("GET /api/access", s.handleAccess)
+	mux.HandleFunc("GET /api/projects/{name}/flow", s.handleFlow)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	})
@@ -189,7 +195,7 @@ func (s *server) handleSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"user": sess.User, "tools": toolsFor(s.cfg.PlatformURL, sess.User.Groups, s.cfg.AdminGroups),
-		"admin": s.isAdmin(sess.User), "projects": s.store != nil})
+		"admin": s.isAdmin(sess.User), "projects": s.store != nil, "flow": s.catalog != nil})
 }
 
 // handleLogout ends the platform's session and returns Keycloak's logout

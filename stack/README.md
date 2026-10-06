@@ -15,6 +15,8 @@ This directory is StorScale Platform on one machine: a Docker Compose project. `
 | `superset` (with `superset-db`) | SQL Lab and dashboards | `dashboards.` |
 | `airflow` (with its scheduler, DAG processor and `airflow-db`) | Pipelines | `pipelines.` |
 | `prometheus`, `grafana` | Monitoring; Grafana signs people in with Keycloak | `monitoring.` |
+| `openmetadata` (with `openmetadata-db`, `openmetadata-search`) | The catalog: tables, lineage, data quality; signs people in with Keycloak | `catalog.` |
+| `catalog-sync` | Keeps the catalog in step: Trino's tables, the projects' checks | |
 | `setup`, `setup-trino` | One-off configuration, safe to run again | |
 
 ## One domain
@@ -49,11 +51,35 @@ Deleting a project removes its groups and policies. Its data, the bucket and the
 
 The `projects` suite checks that a project's access appears in every system when the project is created, and goes when it's deleted.
 
+## The catalog
+
+OpenMetadata 2.0.4 is trimmed to fit a laptop:
+- it has no Airflow of its own;
+- the server's heap is 640 MB;
+- OpenSearch has every plugin removed (`catalog/opensearch`), a 384 MB heap, and starts in seconds instead of minutes.
+
+Every 20 seconds, `catalog-sync` does three things:
+- **Tables:** it ingests Trino's tables, as the service `trino`, through the service user `openmetadata`. Ranger lets that user read every table, to describe and check it.
+- **Checks:** it runs each project's checks (`spec.tables.checks`: `unique`, `notNull`, `rowCount`) as OpenMetadata tests.
+- **The bot's token:** it shares the catalog's ingestion-bot token in the `catalog` volume.
+
+Two services use that token:
+- **Airflow's pipelines** report their lineage, column by column, as OpenLineage events to `/api/v1/openlineage/lineage`. The sales pipeline does this for `orders_by_region` (`airflow/dags/lakehouse_identity.py`'s `report_lineage`).
+- **platformd** reads a project's tables, lineage and checks for its Flow view (`/api/projects/<name>/flow`).
+
+Each pipeline registers itself in the catalog before it reports, because OpenMetadata 2.0.4 fails to create the pipeline on its own.
+
+**Signing in to OpenMetadata.** Its sign-in uses the person's Keycloak session, the same way the other tools' do. That needs `OIDC_MAX_AGE`, because by default it demands a fresh password; OpenMetadata copies the setting into its database on first start. Its web app keeps its token in a service worker, so the platform opens the catalog in its own tab through `catalog.storscale.localhost:8800/_storscale/launch.html`. That page starts the worker before signing in.
+
 ## In the platform's frame
 
 The platform shows the tools in frames on `http://storscale.localhost:8800`. Two things make that work:
 - **The gateway** lets only the platform frame Superset, Airflow and Grafana, with `frame-ancestors`. JupyterHub sets the same policy itself.
 - **Keycloak's sign-in form never appears in a frame:** the platform signs people in first. Each frame then opens its tool's own Keycloak sign-in, which finds the Keycloak session and returns at once.
+
+## Memory
+
+The stack uses about 7.5 GB. The Java services' heaps are set explicitly (Keycloak, Nessie, Solr, OpenMetadata, OpenSearch, and Trino's 2 GB limit); without that, each JVM would size its heap from the machine's memory. Long-running services restart if they stop.
 
 Keycloak's signing key is made once, in the `keycloak-keys` volume, and kept. Tokens stay valid when Keycloak restarts, and Trino and Buckets keep the keys they've fetched. The realm itself is imported afresh on each start.
 

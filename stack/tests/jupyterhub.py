@@ -142,6 +142,7 @@ def notebook_checks(user, other):
     me = hub_api(s, "GET", "/user")
     wait_for_server(s, user)
     out = run(user, server_token(s, user), NOTEBOOK.replace("OTHER", repr(other)))
+    hub_api(s, "DELETE", f"/users/{user}/server")  # done: stop it, as the hub's idle culler would
     return me, json.loads(out.strip().splitlines()[-1])
 
 

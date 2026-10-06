@@ -13,12 +13,19 @@ export default function Home({ user, tools, projects }: { user: User; tools: Too
       <h1 data-testid="greeting">Welcome, {first}</h1>
       <p className="muted lead">Everything below uses your one sign-in. What you can see and change follows your projects.</p>
       <div className="tool-grid">
-        {tools.map((t) => (
-          <Link key={t.id} to={`/tools/${t.id}`} className="tool-card" data-testid={`card-${t.id}`}>
-            <h2>{t.name}</h2>
-            <p>{t.description}</p>
-          </Link>
-        ))}
+        {tools.map((t) =>
+          t.embedUrl ? (
+            <Link key={t.id} to={`/tools/${t.id}`} className="tool-card" data-testid={`card-${t.id}`}>
+              <h2>{t.name}</h2>
+              <p>{t.description}</p>
+            </Link>
+          ) : (
+            <a key={t.id} href={t.url} target="_blank" rel="noreferrer" className="tool-card" data-testid={`card-${t.id}`}>
+              <h2>{t.name} <span aria-hidden>↗</span></h2>
+              <p>{t.description}</p>
+            </a>
+          ),
+        )}
       </div>
       {projects && (
         <>

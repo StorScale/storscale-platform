@@ -12,13 +12,14 @@ StorScale Platform is one open data platform on [StorScale Buckets](https://gith
 
 People sign in once to one place. They work in **projects**: a project brings together a team's data, notebooks, pipelines and dashboards, and the access to them. Access is granted once, and the platform puts it into every tool.
 
-> **Status:** phase 2 of [the plan](docs/plan.md).
+> **Status:** phase 3 of [the plan](docs/plan.md).
 > - **One web app** with one sign-in. Notebooks, SQL, dashboards, pipelines and monitoring open inside it.
 > - **Projects:** an administrator defines a project, and the platform applies its access in Keycloak, Ranger, Buckets and Nessie.
+> - **A catalog:** OpenMetadata, with each project's lineage (column by column) and data-quality checks. Each project has a Flow view.
 
 ## Try it
 
-You need Docker with Compose 2.24 or later, about 10 GB of memory for Docker, and Go 1.26 or later to build the command.
+You need Docker with Compose 2.24 or later, about 10 GB of memory for Docker (the stack uses about 7.5 GB), and Go 1.26 or later to build the command.
 
 ```bash
 go build -o bin/storscale ./cmd/storscale
@@ -36,6 +37,7 @@ One Keycloak sign-in covers the platform and every tool in it: JupyterHub, Super
 | SQL and dashboards (Superset) | http://dashboards.storscale.localhost:8800 |
 | Pipelines (Airflow) | http://pipelines.storscale.localhost:8800 |
 | Monitoring (Grafana) | http://monitoring.storscale.localhost:8800 |
+| Catalog (OpenMetadata) | http://catalog.storscale.localhost:8800 (opens in its own tab) |
 | Access policies (Ranger) | http://access.storscale.localhost:8800 |
 | Trino, for JDBC and CLI clients | https://localhost:8443 |
 

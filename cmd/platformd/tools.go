@@ -44,6 +44,13 @@ func toolsFor(platformURL string, groups []string, adminGroups []string) []tool 
 		{ID: "pipelines", Name: "Pipelines", Section: "work",
 			Description: "Airflow: pipelines, their runs and their logs.",
 			URL:         at("pipelines", "/"), EmbedURL: at("pipelines", "/auth/login/keycloak") + "?next=%2F"},
+		{ID: "catalog", Name: "Catalog", Section: "work",
+			Description: "OpenMetadata: every table and column, their lineage, and their checks.",
+			// In a tab of its own, through the gateway's launcher, which starts
+			// OpenMetadata's service worker (where its app keeps its token) and
+			// then its Keycloak sign-in (stack/gateway/catalog/launch.html).
+			// The project's Flow view shows its lineage and checks in the platform.
+			URL: at("catalog", "/_storscale/launch.html")},
 		{ID: "monitoring", Name: "Monitoring", Section: "work",
 			Description: "Grafana: the storage's dashboards and alerts.",
 			URL:         at("monitoring", "/"), EmbedURL: at("monitoring", "/login/generic_oauth")},

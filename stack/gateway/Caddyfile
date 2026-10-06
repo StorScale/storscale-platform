@@ -37,6 +37,18 @@ http://monitoring.{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
 	import framed grafana:3000
 }
 
+http://catalog.{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
+	# The platform's way in: starts OpenMetadata's service worker, then signs in.
+	handle /_storscale/* {
+		root * /srv
+		file_server
+		header ?Content-Security-Policy "frame-ancestors 'self' http://{$STORSCALE_DOMAIN}:{$STORSCALE_PORT}"
+	}
+	handle {
+		import framed openmetadata:8585
+	}
+}
+
 http://access.{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
 	reverse_proxy ranger-admin:6080
 }
