@@ -32,7 +32,8 @@ The first users are data engineers and analysts. ML and GenAI wait until there a
 | Pipelines | Airflow, dbt | | |
 | Catalog, lineage, data quality | OpenMetadata (with OpenLineage ingestion), Soda checks | | |
 | Monitoring | Prometheus, Grafana, Loki | | |
-| ML, GenAI | | MLflow, LiteLLM, pgvector, an MCP server over Trino and the catalog | |
+| Semantic layer, agent access | MetricFlow (phase 4), the platform's MCP server | | |
+| ML, GenAI | | MLflow, LiteLLM, pgvector | |
 
 ## Architecture
 
@@ -110,6 +111,7 @@ The examples already prove every mapping in this list by hand.
 | Join, group, window and pivot recipes | dbt models, or Trino SQL from a template | MVP |
 | Prepare recipe (point-and-click) | Gap to build: a recipe builder that generates SQL | Later |
 | Datasets and connections, Iceberg REST | Trino catalogs, Nessie's Iceberg REST endpoint | MVP |
+| Semantic Models, AI SQL, agent tools (MCP) | The semantic layer: MetricFlow models, an editor in the shell, and an MCP server that queries as the person or agent asking | Phase 4 |
 | Data catalog, column lineage, search | OpenMetadata + OpenLineage, shown in the shell | MVP |
 | Data quality rules | Soda checks as Airflow tasks, results in the catalog | MVP |
 | Scenarios, triggers, reporters | Airflow (data-aware scheduling), Grafana alerting | MVP |
@@ -118,7 +120,7 @@ The examples already prove every mapping in this list by hand.
 | Code environments, compute on Kubernetes | JupyterHub profiles, images built per project, quotas | MVP |
 | Bundles and Deployer (dev to prod) | Git CI plus a Nessie branch merge, with project promotion between installs | Later |
 | AutoML, experiment tracking, model registry, drift | MLflow, FLAML, Evidently + Grafana | Later |
-| LLM Mesh, prompt studio, Knowledge Banks, agents | LiteLLM, Langfuse, pgvector, an MCP server | Later (MCP server early: it's cheap) |
+| LLM Mesh, prompt studio, Knowledge Banks, agents | LiteLLM, Langfuse, pgvector | Later (agent access to data comes in phase 4) |
 | Webapps, Answers, Stories, Govern sign-offs | Not planned yet | Not included |
 
 ## Phases
@@ -131,9 +133,34 @@ Each phase ends with a gate: an end-to-end test like the examples' `test.py`, ru
 | 1 | The shell: `platformd` OIDC sign-in, navigation, Home, tool pages embedded or linked with silent SSO | Playwright: alice signs in once and reaches SQL, notebooks, dashboards and pipelines without a second login; carol is refused |
 | 2 | Projects: the CRD and operator (also running in Compose mode), plus the Projects and Access pages | Creating `sales` gives each user exactly the access the guides check today, in every tool; deleting it removes that access |
 | 3 | Catalog and lineage: OpenMetadata, OpenLineage from Airflow, Spark and Trino, a Flow view, Soda checks | A pipeline run appears in the lineage graph, column-level; a failing check shows on the dataset |
-| 4 | Kubernetes: the Helm umbrella chart, the Buckets operator, Spark Operator, KubeSpawner | `helm install` on kind gives a healthy install; the phase 1–3 tests pass on it |
-| 5 | Operations: Audit and Health pages (Loki, Grafana), backup and upgrade notes, docs on storscale.io/platform | A full upgrade between two releases with no lost projects |
-| 6+ | Later items, in this order: MCP server, MLflow, Prepare-recipe builder, promotion between installs, LiteLLM | Per feature |
+| 4 | The semantic layer and agent access (below): MetricFlow models per project, the Semantic layer pages, the MCP server | An agent signed in as alice asks for revenue by region and gets EU only, masked as in Trino; carol's agent gets nothing; bob's metric change shows up in the next answer; Ranger's audit names both the agent and alice |
+| 5 | Kubernetes: the Helm umbrella chart, the Buckets operator, Spark Operator, KubeSpawner | `helm install` on kind gives a healthy install; the phase 1–4 tests pass on it |
+| 6 | Operations: Audit and Health pages (Loki, Grafana), backup and upgrade notes, docs on storscale.io/platform | A full upgrade between two releases with no lost projects |
+| 7+ | Later items, in this order: MLflow, Prepare-recipe builder, promotion between installs, LiteLLM | Per feature |
+
+## The semantic layer, and agents
+
+People define what the business means once: entities (customer, order), dimensions (region, month), measures and metrics (revenue, active customers), and how tables join. People, dashboards and AI agents then ask for *metrics*, not SQL. They get the same answer, under the same access rules.
+
+- **Definitions:** MetricFlow's YAML (semantic models and metrics), the Open Semantic Interchange's reference engine, Apache 2.0. It lives in each project's Git repo, beside its dbt models, so it's reviewed and versioned like code. Cube Core is the fallback; its own MCP server is in Cube's paid plans.
+- **Building it, in the shell:**
+  - **Pages:** a Semantic layer page per project. Browse entities, dimensions and metrics; start a model from a table in the catalog (phase 3) with its columns and joins filled in; edit with validation; preview a metric's SQL and its result before saving.
+  - **Saving:** saving opens a change on the project's repo, or commits it directly for engineers.
+  - **Who may edit:** engineers edit; analysts read.
+- **Compiling:** `semanticd`, a small Python service around MetricFlow, compiles metric requests to Trino SQL. It never holds data credentials. The query runs in Trino *as whoever asked*, so Ranger's policies, masks and row filters apply, as they do in Superset.
+- **Agent access (MCP):** the platform serves an MCP server at `mcp.storscale.localhost`, with OAuth through Keycloak (the MCP authorization spec). Its tools:
+  - `list_metrics`, `describe_metric`, `list_dimensions`;
+  - `query_metrics` (metrics, dimensions, filters, time grain);
+  - `explain` (the SQL that would run);
+  - `search_catalog` (from phase 3).
+
+  Each agent gets only the projects and metrics its identity may see.
+- **Agent identity:**
+  - **An assistant acting for a person** (Claude, an IDE) signs in as that person through Keycloak, so it sees what they see.
+  - **An autonomous agent** gets a Keycloak service account in a group, like Airflow's pipelines: narrow, audited, and revoked in one place.
+  - **Audit:** Ranger's audit log and the platform's audit page record each query under the agent's name and the person it acted for.
+- **Also served by the semantic layer:** Superset datasets from the metrics, so dashboards and agents agree, and `query_metrics` from notebooks (a Python client).
+
 
 ## Decisions (2026-10-06)
 
@@ -141,4 +168,5 @@ Each phase ends with a gate: an end-to-end test like the examples' `test.py`, ru
 2. **`platformd` and `platform-operator` are written in Go** (controller-runtime for the operator). The C stays in Buckets.
 3. **Catalog:** OpenMetadata, with OpenLineage ingestion; DataHub is not used.
 4. **Dremio is left out.** It overlaps Trino and Superset, and its OSS edition has no OIDC or RBAC.
-5. **Compose first, then Helm:** `storscale up` reuses the tested Buckets examples (phase 0); the Helm umbrella chart follows in phase 4.
+5. **Compose first, then Helm:** `storscale up` reuses the tested Buckets examples (phase 0); the Helm umbrella chart follows in phase 5.
+6. **A semantic layer that agents can use (added 2026-10-06):** MetricFlow for the definitions, and the platform's own MCP server for agents, as phase 4. It comes after the catalog, whose tables and columns it starts from.
