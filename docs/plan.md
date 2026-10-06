@@ -2,7 +2,7 @@
 
 **StorScale Platform** is one product over the open-source tools the Buckets integration guides already run and test together. You sign in once, and you get one home, one notion of a *project*, one catalog and one place to grant access. Each tool's own UI stays available underneath.
 
-- **Repo:** `github.com/StorScale/platform` (AGPL-3.0, like Buckets).
+- **Repo:** `github.com/StorScale/storscale-platform` (AGPL-3.0, like Buckets).
 - **Web:** `storscale.io/platform`.
 - **CLI:** `storscale up`.
 - **Naming:** *StorScale Buckets* is the storage; *StorScale Platform* is the platform on top.
@@ -136,7 +136,7 @@ Each phase ends with a gate: an end-to-end test like the examples' `test.py`, ru
 
 ## Decisions (2026-10-06)
 
-1. **Repo and license:** `StorScale/platform`, AGPL-3.0. Buckets is a dependency (its images, chart and operator), not vendored code.
+1. **Repo and license:** `StorScale/storscale-platform`, AGPL-3.0. Buckets is a dependency (its images, chart and operator), not vendored code.
 2. **`platformd` and `platform-operator` are written in Go** (controller-runtime for the operator). The C stays in Buckets.
 3. **Catalog:** OpenMetadata, with OpenLineage ingestion; DataHub is not used.
 4. **Dremio is left out.** It overlaps Trino and Superset, and its OSS edition has no OIDC or RBAC.
