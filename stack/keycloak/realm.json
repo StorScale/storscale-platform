@@ -78,6 +78,40 @@
   ],
   "clients": [
     {
+      "clientId": "platform",
+      "name": "StorScale Platform",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${PLATFORM_OAUTH_SECRET:platform-oauth-secret-change-me}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}/auth/callback"
+      ],
+      "webOrigins": [
+        "http://${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}"
+      ],
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ],
+      "attributes": {
+        "post.logout.redirect.uris": "http://${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}/*",
+        "pkce.code.challenge.method": "S256"
+      }
+    },
+    {
       "clientId": "lakehouse",
       "name": "Lakehouse (Trino and Buckets)",
       "enabled": true,
@@ -284,5 +318,34 @@
         }
       ]
     }
-  ]
+  ],
+  "components": {
+    "org.keycloak.keys.KeyProvider": [
+      {
+        "name": "storscale-signing",
+        "providerId": "rsa",
+        "subComponents": {},
+        "config": {
+          "priority": [
+            "200"
+          ],
+          "enabled": [
+            "true"
+          ],
+          "active": [
+            "true"
+          ],
+          "algorithm": [
+            "RS256"
+          ],
+          "privateKey": [
+            "${KC_SIGNING_KEY}"
+          ],
+          "certificate": [
+            "${KC_SIGNING_CERT}"
+          ]
+        }
+      }
+    ]
+  }
 }

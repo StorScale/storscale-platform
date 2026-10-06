@@ -4,8 +4,9 @@ This directory is StorScale Platform on one machine: a Docker Compose project. `
 
 | Service | What it is | At |
 |---|---|---|
-| `gateway` | Caddy: the one domain, with a name per tool | `http://storscale.localhost:8800` |
-| `keycloak` | Sign-in for everything; realm `lakehouse` | `auth.` |
+| `gateway` | Caddy: the one domain, with a name per tool | |
+| `platformd` | The platform's web app and its backend: Keycloak sign-in, the tools each person may open | `http://storscale.localhost:8800` |
+| `keycloak` | Sign-in for everything; realm `lakehouse`, with a signing key kept in a volume | `auth.` |
 | `buckets` | Buckets, one server with four drives (EC 2+2) | `s3.` |
 | `nessie`, `trino` | The Iceberg catalog and the SQL engine | Trino: `https://localhost:8443` |
 | `ranger-admin` (with `ranger-db`, `ranger-solr`) | Who may query what, and the audit log | `access.` |
@@ -24,6 +25,14 @@ Every tool has a name under `STORSCALE_DOMAIN` (default `storscale.localhost`). 
 **One exception:** libcurl resolves `*.localhost` names to loopback itself and never asks Docker's DNS. Anything that uses libcurl (JupyterHub's HTTP client) calls Keycloak at `http://keycloak:8080` directly. The tokens it gets still name the gateway's address.
 
 To use another domain, set `STORSCALE_DOMAIN`, and make its names resolve to this machine (in a hosts file or DNS).
+
+## In the platform's frame
+
+The platform shows the tools in frames on `http://storscale.localhost:8800`. Two things make that work:
+- **The gateway** lets only the platform frame Superset, Airflow and Grafana, with `frame-ancestors`. JupyterHub sets the same policy itself.
+- **Keycloak's sign-in form never appears in a frame:** the platform signs people in first. Each frame then opens its tool's own Keycloak sign-in, which finds the Keycloak session and returns at once.
+
+Keycloak's signing key is made once, in the `keycloak-keys` volume, and kept. Tokens stay valid when Keycloak restarts, and Trino and Buckets keep the keys they've fetched. The realm itself is imported afresh on each start.
 
 ## Where it comes from
 

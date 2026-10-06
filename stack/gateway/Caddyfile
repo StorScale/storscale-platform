@@ -4,41 +4,45 @@
 	admin off
 }
 
-(proxy) {
-	reverse_proxy {args[0]}
+# A tool the platform shows in a frame: only the platform's pages may frame
+# it. (A tool that says so itself, as JupyterHub does, keeps its own policy.)
+(framed) {
+	reverse_proxy {args[0]} {
+		header_down -X-Frame-Options
+	}
+	header ?Content-Security-Policy "frame-ancestors 'self' http://{$STORSCALE_DOMAIN}:{$STORSCALE_PORT}"
 }
 
 http://{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
-	root * /srv/home
-	file_server
+	reverse_proxy platformd:8080
 }
 
 http://auth.{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
-	import proxy keycloak:8080
+	reverse_proxy keycloak:8080
 }
 
 http://notebooks.{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
-	import proxy jupyterhub:8000
+	import framed jupyterhub:8000
 }
 
 http://dashboards.{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
-	import proxy superset:8088
+	import framed superset:8088
 }
 
 http://pipelines.{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
-	import proxy airflow:8090
+	import framed airflow:8090
 }
 
 http://monitoring.{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
-	import proxy grafana:3000
+	import framed grafana:3000
 }
 
 http://access.{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
-	import proxy ranger-admin:6080
+	reverse_proxy ranger-admin:6080
 }
 
 http://s3.{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
-	import proxy buckets:9000
+	reverse_proxy buckets:9000
 }
 
 # Any other name: the health check, and nothing else.

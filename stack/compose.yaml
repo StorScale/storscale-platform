@@ -3,7 +3,7 @@
 # One domain, STORSCALE_DOMAIN (storscale.localhost), on one port,
 # STORSCALE_PORT (8800). The gateway serves each tool on a name of its own:
 #
-#   http://storscale.localhost:8800              the platform's home page
+#   http://storscale.localhost:8800              the platform: one sign-in, every tool
 #   http://auth.storscale.localhost:8800         Keycloak: sign-in for everything
 #   http://notebooks.storscale.localhost:8800    JupyterHub
 #   http://dashboards.storscale.localhost:8800   Superset
@@ -91,7 +91,6 @@ services:
       STORSCALE_PORT: ${STORSCALE_PORT}
     volumes:
       - ./gateway/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./gateway/home:/srv/home:ro
     ports: ["${STORSCALE_BIND:-127.0.0.1}:${STORSCALE_PORT}:${STORSCALE_PORT}"]
     networks:
       default:
@@ -110,9 +109,24 @@ services:
       retries: 60
 
   # --- Identity -------------------------------------------------------------------
+  # The realm's signing key, made once and kept: tokens stay valid when
+  # Keycloak restarts, and Trino and Buckets keep the keys they've fetched.
+  keycloak-keys:
+    <<: *tools
+    command: ["sh", "-c", "test -s /keys/key.pem || (openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj /CN=lakehouse -keyout /keys/key.pem -out /keys/cert.pem && chmod 644 /keys/*.pem)"]
+    volumes:
+      - keycloak-keys:/keys
+
   keycloak:
     image: quay.io/keycloak/keycloak:26.8.0
-    command: ["start-dev", "--import-realm"]
+    # The realm (keycloak/realm.json) is imported afresh on each start, with
+    # the signing key from keycloak-keys.
+    entrypoint: ["bash", "-c"]
+    command:
+      - |
+        export KC_SIGNING_KEY="$$(grep -v -- ----- /keys/key.pem | tr -d '\n')"
+        export KC_SIGNING_CERT="$$(grep -v -- ----- /keys/cert.pem | tr -d '\n')"
+        exec /opt/keycloak/bin/kc.sh start-dev --import-realm
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
@@ -125,16 +139,34 @@ services:
       STORSCALE_PORT: ${STORSCALE_PORT}
       LAKEHOUSE_USER_PASSWORD: ${LAKEHOUSE_USER_PASSWORD}
       JUPYTERHUB_OAUTH_SECRET: ${JUPYTERHUB_OAUTH_SECRET}
+      PLATFORM_OAUTH_SECRET: ${PLATFORM_OAUTH_SECRET}
       SUPERSET_OAUTH_SECRET: ${SUPERSET_OAUTH_SECRET}
       GRAFANA_OAUTH_SECRET: ${GRAFANA_OAUTH_SECRET}
       AIRFLOW_OAUTH_SECRET: ${AIRFLOW_OAUTH_SECRET}
       AIRFLOW_PIPELINES_SECRET: ${AIRFLOW_PIPELINES_SECRET}
     volumes:
       - ./keycloak/realm.json:/opt/keycloak/data/import/lakehouse-realm.json:ro
+      - keycloak-keys:/keys:ro
     depends_on:
       gateway: {condition: service_healthy}
+      keycloak-keys: {condition: service_completed_successfully}
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q UP <&3"]
+      interval: 5s
+      retries: 60
+
+  # --- The platform: its web app, and platformd behind it -----------------------------
+  platformd:
+    image: ${PLATFORMD_IMAGE}
+    environment:
+      PLATFORM_URL: http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}
+      KEYCLOAK_URL: http://auth.${STORSCALE_DOMAIN}:${STORSCALE_PORT}
+      KEYCLOAK_DIRECT_URL: http://keycloak:8080
+      OIDC_CLIENT_SECRET: ${PLATFORM_OAUTH_SECRET}
+    depends_on:
+      keycloak: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "/usr/bin/platformd", "healthcheck"]
       interval: 5s
       retries: 60
 
@@ -294,6 +326,7 @@ services:
     command: ["jupyterhub", "-f", "/etc/jupyterhub/jupyterhub_config.py"]
     environment:
       <<: *urls
+      PLATFORM_URL: http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}
       JUPYTERHUB_OAUTH_SECRET: ${JUPYTERHUB_OAUTH_SECRET}
       JUPYTERHUB_CRYPT_KEY: ${JUPYTERHUB_CRYPT_KEY}
     volumes:
@@ -415,6 +448,8 @@ services:
     environment:
       GF_SERVER_ROOT_URL: http://monitoring.${STORSCALE_DOMAIN}:${STORSCALE_PORT}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      # The platform shows Grafana in a frame; the gateway says which pages may.
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
       # People sign in with Keycloak: engineers edit dashboards, analysts view
       # them, and anyone in neither group is refused (role_attribute_strict).
       # The admin account above stays, for when Keycloak is down.
@@ -471,7 +506,17 @@ services:
       - tls:/tls
       - drive3:/drive3
 
+  # The shell, in a real browser: docker compose run --rm test-browser
+  test-browser:
+    image: mcr.microsoft.com/playwright/python:v1.63.0-noble
+    command: ["sh", "-c", "pip install -q --root-user-action=ignore playwright==1.63.0 && python -u /tests/shell.py"]
+    env_file: .env
+    volumes:
+      - ./tests:/tests:ro
+    profiles: ["test"]
+
 volumes:
+  keycloak-keys:
   drive1:
   drive2:
   drive3:

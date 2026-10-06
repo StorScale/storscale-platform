@@ -24,7 +24,7 @@ Usage:
   storscale up [--port N]       start the platform (builds its images the first time)
   storscale status              the platform's services
   storscale urls                where each tool is
-  storscale test [suite ...]    the end-to-end checks: lakehouse, superset, airflow, jupyterhub, monitoring
+  storscale test [suite ...]    the end-to-end checks: shell, lakehouse, superset, airflow, jupyterhub, monitoring
   storscale logs [service ...]  follow the logs
   storscale down [--volumes]    stop it; --volumes also deletes its data
   storscale version
@@ -89,7 +89,7 @@ func run(args []string) error {
 		printURLs(st)
 		return nil
 	case "test":
-		return st.compose(append([]string{"run", "--rm", "--tty=false", "test"}, fs.Args()...)...)
+		return runTests(st, fs.Args())
 	case "logs":
 		return st.compose(append([]string{"logs", "--follow", "--tail", "100"}, fs.Args()...)...)
 	case "down":
@@ -99,6 +99,36 @@ func run(args []string) error {
 		return st.compose("down", "--remove-orphans")
 	}
 	return fmt.Errorf("unknown command %q (see storscale help)", cmd)
+}
+
+// runTests runs the suites asked for, or all of them. "shell" runs in a
+// browser, in a service of its own; the rest run in the test service.
+func runTests(st *stack, suites []string) error {
+	var others []string
+	shell := len(suites) == 0
+	for _, s := range suites {
+		if s == "shell" {
+			shell = true
+		} else {
+			others = append(others, s)
+		}
+	}
+	var failed []string
+	if shell {
+		fmt.Println("=== shell")
+		if err := st.compose("run", "--rm", "--tty=false", "test-browser"); err != nil {
+			failed = append(failed, "shell")
+		}
+	}
+	if len(suites) == 0 || len(others) > 0 {
+		if err := st.compose(append([]string{"run", "--rm", "--tty=false", "test"}, others...)...); err != nil {
+			failed = append(failed, "the other suites")
+		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("failed: %s", strings.Join(failed, ", "))
+	}
+	return nil
 }
 
 func printURLs(st *stack) {
@@ -111,7 +141,7 @@ func printURLs(st *stack) {
 	}
 	fmt.Printf("StorScale Platform %s\n\n", version())
 	for _, t := range []struct{ name, sub, path string }{
-		{"Home", "", "/"},
+		{"The platform", "", "/"},
 		{"Notebooks (JupyterHub)", "notebooks", "/"},
 		{"SQL and dashboards (Superset)", "dashboards", "/"},
 		{"Pipelines (Airflow)", "pipelines", "/"},

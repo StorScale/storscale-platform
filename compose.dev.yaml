@@ -1,0 +1,11 @@
+# Building the platform's own images from this checkout, for development:
+#
+#   bin/storscale up --dir stack     (storscale adds this file when --dir is a checkout's stack)
+#
+# Paths are relative to the stack directory, as in stack/compose.yaml.
+services:
+  platformd:
+    build:
+      context: ..
+      dockerfile: docker/platformd.Dockerfile
+    image: storscale-platformd-dev

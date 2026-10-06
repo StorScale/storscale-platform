@@ -18,6 +18,9 @@ func TestOpenStackWritesTheBuiltInStack(t *testing.T) {
 			t.Errorf("%s: %v", f, err)
 		}
 	}
+	if f := st.files(); len(f) != 1 {
+		t.Errorf("the built-in stack: files %v, want compose.yaml alone", f)
+	}
 	again, err := openStack("")
 	if err != nil || again.dir != st.dir {
 		t.Fatalf("second open: %v, %q (want %q)", err, again.dir, st.dir)
@@ -41,5 +44,8 @@ func TestOpenStackDir(t *testing.T) {
 	}
 	if !filepath.IsAbs(st.dir) {
 		t.Errorf("dir %q isn't absolute", st.dir)
+	}
+	if f := st.files(); len(f) != 2 || filepath.Base(f[1]) != "compose.dev.yaml" {
+		t.Errorf("a checkout's stack: files %v, want compose.yaml and the checkout's compose.dev.yaml", f)
 	}
 }

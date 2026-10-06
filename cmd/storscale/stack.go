@@ -92,9 +92,28 @@ func digest(fsys fs.FS) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// files are the stack's Compose files. A checkout's stack also gets the
+// checkout's compose.dev.yaml, which builds the platform's own images from source.
+func (s *stack) files() []string {
+	files := []string{filepath.Join(s.dir, "compose.yaml")}
+	if dev := filepath.Join(s.dir, "..", "compose.dev.yaml"); fileExists(dev) {
+		files = append(files, dev)
+	}
+	return files
+}
+
+func fileExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && !st.IsDir()
+}
+
 // compose runs docker compose on the stack, attached to this terminal.
 func (s *stack) compose(args ...string) error {
-	cmd := exec.Command("docker", append([]string{"compose", "--project-directory", s.dir, "--file", filepath.Join(s.dir, "compose.yaml")}, args...)...)
+	base := []string{"compose", "--project-directory", s.dir}
+	for _, f := range s.files() {
+		base = append(base, "--file", f)
+	}
+	cmd := exec.Command("docker", append(base, args...)...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
 		if _, ok := err.(*exec.ExitError); ok {

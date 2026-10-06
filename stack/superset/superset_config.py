@@ -56,3 +56,19 @@ CUSTOM_SECURITY_MANAGER = KeycloakSecurityManager
 # The example runs on plain HTTP between containers.
 TALISMAN_ENABLED = False
 WTF_CSRF_ENABLED = True
+
+
+# --- In the platform's frame ------------------------------------------------------------
+# The platform opens Superset at /login/keycloak?next=<page>. Someone already
+# signed in goes straight to <page>: Superset's own login view would send them
+# to the home page instead.
+def FLASK_APP_MUTATOR(app):
+    from flask import redirect, request
+    from flask_login import current_user
+
+    @app.before_request
+    def signed_in_go_next():
+        if request.path.rstrip("/") == "/login/keycloak" and current_user.is_authenticated:
+            nxt = request.args.get("next", "")
+            return redirect(nxt if nxt.startswith("/") and not nxt.startswith(("//", "/\\")) else "/")
+        return None

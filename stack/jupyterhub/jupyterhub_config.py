@@ -1,5 +1,6 @@
 """JupyterHub for the JupyterHub example: Keycloak sign-in, one container per
 person, and each person's own Buckets credentials in their notebooks."""
+import json
 import os
 
 c = get_config()  # noqa: F821 (JupyterHub provides it)
@@ -45,6 +46,12 @@ c.JupyterHub.load_roles = [
      "scopes": ["users:activity!user", "access:servers!server", "read:users:name!user", "admin:auth_state!user"]},
 ]
 
+# --- In the platform's frame ---------------------------------------------------------
+# The platform (PLATFORM_URL) shows the hub and each notebook server in a frame;
+# no other page may.
+FRAMED_BY = {"Content-Security-Policy": f"frame-ancestors 'self' {os.environ['PLATFORM_URL']}"}
+c.JupyterHub.tornado_settings = {"headers": FRAMED_BY}
+
 # --- Notebooks: a container per person -------------------------------------------------
 c.JupyterHub.spawner_class = "docker"
 c.DockerSpawner.image = "storscale-notebook"
@@ -55,6 +62,7 @@ c.DockerSpawner.notebook_dir = "/home/jovyan/work"
 c.DockerSpawner.volumes = {"storscale-notebooks-{username}": "/home/jovyan/work"}
 c.DockerSpawner.environment = {"BUCKETS_ENDPOINT": "http://buckets:9000", "BUCKETS_REGION": "us-east-1"}
 c.Spawner.start_timeout = 120
+c.DockerSpawner.args = ["--ServerApp.tornado_settings=" + json.dumps({"headers": FRAMED_BY})]
 
 c.JupyterHub.hub_ip = "0.0.0.0"
 c.JupyterHub.hub_connect_ip = "jupyterhub"

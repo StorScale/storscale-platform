@@ -1,0 +1,90 @@
+/* The platform's look: the Buckets console's tokens and shell, for one family of apps. */
+:root {
+  --bg: #f5f6f8;
+  --panel: #ffffff;
+  --text: #1d2330;
+  --muted: #6b7385;
+  --line: #e2e5ea;
+  --accent: #0a66d1;
+  --accent-dark: #084fa6;
+  --accent-fg: #fff;
+  --ok: #1f8a4c;
+  --bad: #c0392b;
+  --side: #1d2330;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14171d;
+    --panel: #1d2129;
+    --text: #e4e7ec;
+    --muted: #9aa2b1;
+    --line: #2d333d;
+    --side: #0e1014;
+    --accent: #4c9bf0;
+    --accent-dark: #78b4f5;
+    --accent-fg: #0e1014;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: 22px; margin: 0 0 6px; font-weight: 600; }
+h2 { font-size: 16px; margin: 24px 0 10px; font-weight: 600; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.muted { color: var(--muted); }
+.bad { color: var(--bad); }
+.grow { flex: 1; }
+.center { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 16px; }
+
+.shell { display: flex; height: 100vh; }
+.sidebar { width: 220px; flex: none; background: var(--side); color: #cfd4de; display: flex; flex-direction: column; padding: 16px 0; overflow-y: auto; }
+.sidebar a { color: #cfd4de; padding: 8px 20px; display: block; text-decoration: none; }
+.sidebar a.active, .sidebar a:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+.sidebar .nav-group { padding: 16px 20px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #7f889a; }
+.sidebar-foot { margin-top: auto; padding: 12px 20px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+.sidebar-foot .link { color: #cfd4de; padding: 0; }
+.whoami { font-size: 13px; color: #e4e7ec; }
+.groups { font-size: 12px; color: #9aa2b1; margin: 2px 0 8px; }
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 16px; padding: 0 20px 16px; color: #fff; }
+.brand img { width: 24px; height: 24px; }
+.brand-sub { font-weight: 400; color: #9aa2b1; }
+
+.content { flex: 1; min-width: 0; overflow-y: auto; padding: 28px 32px; }
+.content.framed { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.tool-bar { display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--panel); white-space: nowrap; overflow: hidden; }
+.tool-bar .muted { overflow: hidden; text-overflow: ellipsis; }
+.tool-frame { flex: 1; width: 100%; border: 0; background: #fff; }
+.tool-frame[hidden] { display: none; }
+
+button, .button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+button:hover { border-color: var(--muted); }
+button.link { background: none; border: none; color: var(--accent); padding: 0 4px; }
+
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px 20px; }
+.card p { margin: 6px 0; }
+.lead { margin: 0 0 20px; max-width: 70ch; }
+.home { max-width: 1040px; }
+.tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+.tool-card { display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; color: inherit; }
+.tool-card:hover { border-color: var(--accent); text-decoration: none; }
+.tool-card h2 { margin: 0 0 4px; color: var(--accent); font-size: 15px; }
+.tool-card p { margin: 0; color: var(--muted); }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; background: var(--line); color: var(--muted); margin-right: 4px; }
+.refused { max-width: 440px; }
+.refused h1 { margin-bottom: 12px; }
+
+.spinner { width: 28px; height: 28px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 760px) {
+  .shell { flex-direction: column; height: auto; min-height: 100vh; }
+  .sidebar { width: 100%; flex-direction: row; flex-wrap: wrap; padding: 8px; }
+  .sidebar .nav-group, .sidebar-foot { display: none; }
+  .content { padding: 16px; }
+  .content.framed { height: calc(100vh - 96px); }
+}

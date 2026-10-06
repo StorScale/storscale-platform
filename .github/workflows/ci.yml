@@ -24,6 +24,12 @@ jobs:
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - run: go vet ./...
       - run: go test ./...
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: The web app
+        working-directory: web
+        run: npm ci --no-fund --no-audit && npm run build
       - name: The stack's Compose file
         run: docker compose --project-directory stack config --quiet
 
@@ -39,10 +45,11 @@ jobs:
       - name: Room for the images
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
       - run: go build -o bin/storscale ./cmd/storscale
-      - run: bin/storscale up
-      - run: bin/storscale test
+      # --dir stack: this checkout's stack, building the platform's own images from source
+      - run: bin/storscale up --dir stack
+      - run: bin/storscale test --dir stack
       - name: What went wrong
         if: failure()
         run: |
-          bin/storscale status
+          bin/storscale status --dir stack
           docker compose --project-name storscale logs --no-color --tail 200
