@@ -3,8 +3,10 @@
   1. alice signs in to the platform once, with Keycloak's form;
   2. then opens notebooks, SQL, dashboards, pipelines and monitoring in the
      platform's frame, each signed in as alice, without another sign-in;
-  3. carol (in neither group) signs in, and the platform refuses her;
-  4. signing out of the platform ends the Keycloak session too.
+  3. the projects pages: alice sees the sales project, as a reader, and can't
+     make projects; bob, an administrator, sees its members and the Access page;
+  4. carol (in neither group) signs in, and the platform refuses her;
+  5. signing out of the platform ends the Keycloak session too.
 
 Chromium resolves *.localhost names to its own machine, as every browser
 does, so this listens on 127.0.0.1:STORSCALE_PORT and passes connections on
@@ -115,7 +117,15 @@ def main():
             check(f"{tool} opens in the platform, signed in as alice", shown and not on_keycloak, url)
         check("one sign-in for all of them", len(sign_ins) == 1, f"{len(sign_ins)} Keycloak sign-in(s)")
 
-        # 4 (before carol, who has a context of her own). Signing out.
+        # 3. Projects, as alice.
+        page.click("[data-testid=nav-projects]")
+        page.wait_for_selector("[data-testid=project-sales]", timeout=30_000)
+        row = page.inner_text("[data-testid=project-sales]")
+        check("alice sees the sales project, as a reader", "reader" in row, " ".join(row.split()))
+        check("... and can't make projects", page.query_selector("[data-testid=new-project]") is None
+              and page.query_selector("[data-testid=nav-access]") is None, "no New project button, no Access page")
+
+        # 5 (before carol, who has a context of her own). Signing out.
         page.click("[data-testid=nav-sql]")
         page.goto(PLATFORM)
         page.click("[data-testid=sign-out]")
@@ -124,7 +134,25 @@ def main():
               AUTH_HOST in page.url, page.url.split("?")[0])
         ctx.close()
 
-        # 3. carol: signed in, and refused.
+        # 3. Projects, as bob (an administrator).
+        ctx = browser.new_context(viewport={"width": 1400, "height": 900})
+        page = ctx.new_page()
+        page.goto(f"{PLATFORM}/projects")
+        sign_in(page, "bob")
+        page.wait_for_selector("[data-testid=project-sales]", timeout=60_000)
+        page.click("[data-testid=project-sales] a")
+        page.wait_for_selector("[data-testid=members]", timeout=30_000)
+        members = page.inner_text("[data-testid=members]")
+        check("bob opens the sales project and sees its members", "alice" in members and "reader" in members and "editor" in members,
+              " ".join(members.split())[:120])
+        check("... with what each role gets", "Read orders in iceberg.sales" in page.inner_text("main"), "")
+        page.click("[data-testid=nav-access]")
+        page.wait_for_selector("[data-testid=access]", timeout=30_000)
+        access = page.inner_text("[data-testid=access]")
+        check("... and the Access page: who has which role", "alice" in access and "reader" in access, " ".join(access.split())[:120])
+        ctx.close()
+
+        # 4. carol: signed in, and refused.
         ctx = browser.new_context()
         page = ctx.new_page()
         page.goto(PLATFORM)

@@ -5,7 +5,8 @@ This directory is StorScale Platform on one machine: a Docker Compose project. `
 | Service | What it is | At |
 |---|---|---|
 | `gateway` | Caddy: the one domain, with a name per tool | |
-| `platformd` | The platform's web app and its backend: Keycloak sign-in, the tools each person may open | `http://storscale.localhost:8800` |
+| `platformd` | The platform's web app and its backend: Keycloak sign-in, the tools each person may open, projects | `http://storscale.localhost:8800` |
+| `platform-operator` | Applies projects to Keycloak, Ranger, Buckets and Nessie, and keeps them that way | |
 | `keycloak` | Sign-in for everything; realm `lakehouse`, with a signing key kept in a volume | `auth.` |
 | `buckets` | Buckets, one server with four drives (EC 2+2) | `s3.` |
 | `nessie`, `trino` | The Iceberg catalog and the SQL engine | Trino: `https://localhost:8443` |
@@ -25,6 +26,28 @@ Every tool has a name under `STORSCALE_DOMAIN` (default `storscale.localhost`). 
 **One exception:** libcurl resolves `*.localhost` names to loopback itself and never asks Docker's DNS. Anything that uses libcurl (JupyterHub's HTTP client) calls Keycloak at `http://keycloak:8080` directly. The tokens it gets still name the gateway's address.
 
 To use another domain, set `STORSCALE_DOMAIN`, and make its names resolve to this machine (in a hosts file or DNS).
+
+## Projects
+
+A project ([projects/sales.json](projects/sales.json) is one) is a team's tables, files and pipelines, and who may use them. Administrators (engineers) make, change and delete projects in the platform's Projects pages, or through `PUT` and `DELETE` on `/api/projects/<name>`. platformd keeps them in the `storscale-platform` bucket.
+
+`platform-operator` applies each project and writes back its status. It runs again when the project changes, and every minute anyway, because a Keycloak group's members can change without the project changing. For project `sales`:
+
+| System | What the project makes |
+|---|---|
+| Keycloak | Groups `sales-readers`, `sales-editors` and `sales-pipelines`, holding exactly the project's members. An editor is in the editors' group only, so the readers' masks and row filters don't apply to them. |
+| Ranger | The same groups, with each member in them, and the policies named `project:sales:…`. Those cover the namespace, its tables (or only some, for readers), and the readers' masks and row filters. |
+| Buckets | The bucket `sales`, and a policy per group: readers read it, editors write it, and the pipelines write `landing/`. |
+| Nessie | The namespace `sales`. |
+
+Deleting a project removes its groups and policies. Its data, the bucket and the tables, stays until someone removes it on purpose.
+
+**Outside projects:** the setup scripts still grant what isn't tied to any project:
+- people's own files (`scratch`, `home`);
+- running queries, and seeing the catalog;
+- Superset's right to run queries as people.
+
+The `projects` suite checks that a project's access appears in every system when the project is created, and goes when it's deleted.
 
 ## In the platform's frame
 

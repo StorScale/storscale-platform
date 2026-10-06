@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { session, Session, signIn, signOut, Tool, User } from "./api";
+import Access from "./pages/Access";
 import Home from "./pages/Home";
+import ProjectDetail from "./pages/ProjectDetail";
+import ProjectEditor from "./pages/ProjectEditor";
+import Projects from "./pages/Projects";
 import ToolFrames from "./pages/ToolFrames";
 
 export default function App() {
@@ -16,13 +20,13 @@ export default function App() {
   if (error) return <Centered><p className="bad">The platform isn't answering: {error}</p></Centered>;
   if (!s) return <Centered><div className="spinner" /></Centered>;
   if (s.state === "refused") return <Refused user={s.user} error={s.error} />;
-  return <Shell user={s.user} tools={s.tools} />;
+  return <Shell user={s.user} tools={s.tools} admin={s.admin} projects={s.projects} />;
 }
 
-function Shell({ user, tools }: { user: User; tools: Tool[] }) {
+function Shell({ user, tools, admin, projects }: { user: User; tools: Tool[]; admin: boolean; projects: boolean }) {
   const location = useLocation();
   const work = tools.filter((t) => t.section === "work");
-  const admin = tools.filter((t) => t.section === "admin");
+  const adminTools = tools.filter((t) => t.section === "admin");
   const toolId = location.pathname.match(/^\/tools\/([^/]+)/)?.[1];
   return (
     <div className="shell">
@@ -31,12 +35,14 @@ function Shell({ user, tools }: { user: User; tools: Tool[] }) {
           <img src="/favicon.svg" alt="" /> StorScale <span className="brand-sub">Platform</span>
         </div>
         <NavLink to="/" end>Home</NavLink>
+        {projects && <NavLink to="/projects" data-testid="nav-projects">Projects</NavLink>}
         <div className="nav-group">Work</div>
         {work.map((t) => (
           <NavLink key={t.id} to={`/tools/${t.id}`} data-testid={`nav-${t.id}`}>{t.name}</NavLink>
         ))}
-        {admin.length > 0 && <div className="nav-group">Administration</div>}
-        {admin.map((t) => (
+        {(adminTools.length > 0 || (admin && projects)) && <div className="nav-group">Administration</div>}
+        {admin && projects && <NavLink to="/access" data-testid="nav-access">Access</NavLink>}
+        {adminTools.map((t) => (
           <a key={t.id} href={t.url} target="_blank" rel="noreferrer" data-testid={`nav-${t.id}`}>
             {t.name} <span aria-hidden>↗</span>
           </a>
@@ -49,8 +55,13 @@ function Shell({ user, tools }: { user: User; tools: Tool[] }) {
       </nav>
       <main className={toolId ? "content framed" : "content"}>
         <Routes>
-          <Route path="/" element={<Home user={user} tools={work} />} />
+          <Route path="/" element={<Home user={user} tools={work} projects={projects} />} />
           <Route path="/tools/:id" element={null} />
+          <Route path="/projects" element={<Projects />} />
+          <Route path="/projects/new" element={<ProjectEditor />} />
+          <Route path="/projects/:name" element={<ProjectDetail admin={admin} />} />
+          <Route path="/projects/:name/edit" element={<ProjectEditor />} />
+          <Route path="/access" element={<Access />} />
           <Route path="*" element={<p>Page not found.</p>} />
         </Routes>
         <ToolFrames tools={work} active={toolId} />

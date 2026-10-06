@@ -74,6 +74,21 @@
       "groups": [
         "/pipelines"
       ]
+    },
+    {
+      "username": "service-account-platform-operator",
+      "enabled": true,
+      "serviceAccountClientId": "platform-operator",
+      "clientRoles": {
+        "realm-management": [
+          "manage-users",
+          "view-users",
+          "query-users",
+          "query-groups",
+          "view-clients",
+          "query-clients"
+        ]
+      }
     }
   ],
   "clients": [
@@ -317,6 +332,17 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "platform-operator",
+      "name": "StorScale Platform operator (service account)",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${OPERATOR_CLIENT_SECRET:platform-operator-secret-change-me}",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true
     }
   ],
   "components": {

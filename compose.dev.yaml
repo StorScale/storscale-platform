@@ -9,3 +9,8 @@ services:
       context: ..
       dockerfile: docker/platformd.Dockerfile
     image: storscale-platformd-dev
+  platform-operator:
+    build:
+      context: ..
+      dockerfile: docker/platformd.Dockerfile
+    image: storscale-platformd-dev

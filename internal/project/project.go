@@ -1,0 +1,376 @@
+// Package project is the platform's central object: a team's tables, files
+// and pipelines, and who may do what with them. A Project is applied to
+// Keycloak, Buckets, Apache Ranger and Nessie by the platform operator; this
+// package says what each of those should hold, and nothing about how.
+package project
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"regexp"
+	"slices"
+	"sort"
+	"strings"
+)
+
+const (
+	APIVersion = "platform.storscale.io/v1alpha1"
+	Kind       = "Project"
+)
+
+// Roles a member can have.
+const (
+	Reader = "reader" // reads the tables (as the reader view allows) and the files
+	Editor = "editor" // creates and changes the tables, writes the files
+)
+
+type Project struct {
+	APIVersion string   `json:"apiVersion"`
+	Kind       string   `json:"kind"`
+	Metadata   Metadata `json:"metadata"`
+	Spec       Spec     `json:"spec"`
+}
+
+type Metadata struct {
+	Name string `json:"name"`
+}
+
+type Spec struct {
+	Description string     `json:"description,omitempty"`
+	Members     []Member   `json:"members"`
+	Tables      *Tables    `json:"tables,omitempty"`
+	Files       *Files     `json:"files,omitempty"`
+	Pipelines   *Pipelines `json:"pipelines,omitempty"`
+}
+
+// A Member is a Keycloak group, or one person, with a role. A group's members
+// are the project's members for as long as they're in the group.
+type Member struct {
+	Group string `json:"group,omitempty"`
+	User  string `json:"user,omitempty"`
+	Role  string `json:"role"`
+}
+
+// Tables: an Iceberg namespace in Nessie, queried through Trino.
+type Tables struct {
+	Catalog   string      `json:"catalog,omitempty"`   // default iceberg
+	Namespace string      `json:"namespace,omitempty"` // default: the project's name
+	Readers   *ReaderView `json:"readers,omitempty"`
+}
+
+// ReaderView narrows what readers see. Editors and pipelines see everything.
+type ReaderView struct {
+	Tables     []string    `json:"tables,omitempty"` // only these; default all
+	RowFilters []RowFilter `json:"rowFilters,omitempty"`
+	Masks      []Mask      `json:"masks,omitempty"`
+}
+
+type RowFilter struct {
+	Table  string `json:"table"`
+	Filter string `json:"filter"` // a SQL condition, e.g. region = 'EU'
+}
+
+type Mask struct {
+	Table  string `json:"table"`
+	Column string `json:"column"`
+	Type   string `json:"type"` // one of MaskTypes
+}
+
+// Files: a bucket in Buckets.
+type Files struct {
+	Bucket string `json:"bucket,omitempty"` // default: the project's name
+}
+
+// Pipelines: a Keycloak client whose service account runs the project's
+// pipelines. It reads and writes the tables, and the files under landing/.
+type Pipelines struct {
+	ServiceAccount string `json:"serviceAccount"` // the Keycloak client's ID
+}
+
+// MaskTypes are Ranger's column masks for Trino.
+var MaskTypes = []string{"MASK", "MASK_SHOW_LAST_4", "MASK_SHOW_FIRST_4", "MASK_HASH", "MASK_NULL", "MASK_NONE", "MASK_DATE_SHOW_YEAR"}
+
+var (
+	nameRE       = regexp.MustCompile(`^[a-z][a-z0-9-]{1,38}[a-z0-9]$`)
+	identifierRE = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
+	principalRE  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._@-]{0,99}$`)
+)
+
+// Parse reads a Project from JSON, fills in its defaults and validates it.
+func Parse(data []byte) (*Project, error) {
+	var p Project
+	dec := json.NewDecoder(strings.NewReader(string(data)))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&p); err != nil {
+		return nil, fmt.Errorf("not a project: %w", err)
+	}
+	p.Default()
+	return &p, p.Validate()
+}
+
+// Default fills in what a spec may leave out.
+func (p *Project) Default() {
+	if p.APIVersion == "" {
+		p.APIVersion = APIVersion
+	}
+	if p.Kind == "" {
+		p.Kind = Kind
+	}
+	if t := p.Spec.Tables; t != nil {
+		if t.Catalog == "" {
+			t.Catalog = "iceberg"
+		}
+		if t.Namespace == "" {
+			t.Namespace = strings.ReplaceAll(p.Metadata.Name, "-", "_")
+		}
+	}
+	if f := p.Spec.Files; f != nil && f.Bucket == "" {
+		f.Bucket = p.Metadata.Name
+	}
+}
+
+// Validate says what's wrong with a project, all at once.
+func (p *Project) Validate() error {
+	var errs []string
+	bad := func(format string, a ...any) { errs = append(errs, fmt.Sprintf(format, a...)) }
+	if p.APIVersion != APIVersion || p.Kind != Kind {
+		bad("apiVersion and kind must be %s and %s", APIVersion, Kind)
+	}
+	if !nameRE.MatchString(p.Metadata.Name) {
+		bad("name %q: 3 to 40 lowercase letters, digits and dashes, starting with a letter", p.Metadata.Name)
+	}
+	if len(p.Spec.Members) == 0 {
+		bad("a project needs at least one member")
+	}
+	for i, m := range p.Spec.Members {
+		switch {
+		case (m.Group == "") == (m.User == ""):
+			bad("member %d: give a group or a user, not both", i+1)
+		case m.Group != "" && !principalRE.MatchString(m.Group), m.User != "" && !principalRE.MatchString(m.User):
+			bad("member %d: %q isn't a group or user name", i+1, m.Group+m.User)
+		}
+		if m.Role != Reader && m.Role != Editor {
+			bad("member %d: role %q must be %s or %s", i+1, m.Role, Reader, Editor)
+		}
+	}
+	if t := p.Spec.Tables; t != nil {
+		if !identifierRE.MatchString(t.Catalog) || !identifierRE.MatchString(t.Namespace) {
+			bad("tables: catalog %q and namespace %q must be lowercase identifiers", t.Catalog, t.Namespace)
+		}
+		if r := t.Readers; r != nil {
+			for _, tb := range r.Tables {
+				if !identifierRE.MatchString(tb) {
+					bad("readers: table %q isn't an identifier", tb)
+				}
+			}
+			for _, f := range r.RowFilters {
+				if !identifierRE.MatchString(f.Table) || strings.TrimSpace(f.Filter) == "" {
+					bad("readers: row filter on %q needs a table and a condition", f.Table)
+				}
+			}
+			for _, m := range r.Masks {
+				if !identifierRE.MatchString(m.Table) || !identifierRE.MatchString(m.Column) {
+					bad("readers: mask on %q.%q needs a table and a column", m.Table, m.Column)
+				}
+				if !slices.Contains(MaskTypes, m.Type) {
+					bad("readers: mask type %q must be one of %s", m.Type, strings.Join(MaskTypes, ", "))
+				}
+			}
+		}
+	}
+	if f := p.Spec.Files; f != nil && !nameRE.MatchString(f.Bucket) {
+		bad("files: bucket %q: 3 to 40 lowercase letters, digits and dashes", f.Bucket)
+	}
+	if pl := p.Spec.Pipelines; pl != nil && !principalRE.MatchString(pl.ServiceAccount) {
+		bad("pipelines: serviceAccount %q isn't a Keycloak client ID", pl.ServiceAccount)
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("%s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+// Hash identifies a spec: the operator applies a project again when it changes.
+func (p *Project) Hash() string {
+	b, _ := json.Marshal(p.Spec)
+	sum := sha256.Sum256(append([]byte(p.Metadata.Name+"\x00"), b...))
+	return hex.EncodeToString(sum[:8])
+}
+
+// Group is the Keycloak group that holds a project's members in one role (or
+// its pipelines' service account): <project>-readers, -editors, -pipelines.
+// The same name is their Buckets policy and their group in Ranger.
+func (p *Project) Group(role string) string {
+	switch role {
+	case Reader:
+		return p.Metadata.Name + "-readers"
+	case Editor:
+		return p.Metadata.Name + "-editors"
+	}
+	return p.Metadata.Name + "-pipelines"
+}
+
+// Groups are all of a project's groups, whether it uses them or not: what to
+// remove when the project goes.
+func (p *Project) Groups() []string {
+	return []string{p.Group(Reader), p.Group(Editor), p.Group("pipelines")}
+}
+
+// RangerPrefix starts the name of every Ranger policy a project owns.
+func (p *Project) RangerPrefix() string { return "project:" + p.Metadata.Name + ":" }
+
+// Statement is a Buckets (S3) policy statement.
+type Statement struct {
+	Effect    string         `json:"Effect"`
+	Action    []string       `json:"Action"`
+	Resource  []string       `json:"Resource"`
+	Condition map[string]any `json:"Condition,omitempty"`
+}
+
+// BucketsPolicies are the project's Buckets policies, by name (each is a group's).
+func (p *Project) BucketsPolicies() map[string][]Statement {
+	f := p.Spec.Files
+	if f == nil {
+		return nil
+	}
+	arn := "arn:aws:s3:::" + f.Bucket
+	read := []Statement{
+		{Effect: "Allow", Action: []string{"s3:GetBucketLocation", "s3:ListBucket"}, Resource: []string{arn}},
+		{Effect: "Allow", Action: []string{"s3:GetObject"}, Resource: []string{arn + "/*"}},
+	}
+	write := []Statement{
+		{Effect: "Allow", Action: []string{"s3:GetBucketLocation", "s3:ListBucket", "s3:ListBucketMultipartUploads"}, Resource: []string{arn}},
+		{Effect: "Allow", Action: []string{"s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"},
+			Resource: []string{arn + "/*"}},
+	}
+	out := map[string][]Statement{p.Group(Reader): read, p.Group(Editor): write}
+	if p.Spec.Pipelines != nil {
+		out[p.Group("pipelines")] = []Statement{
+			{Effect: "Allow", Action: []string{"s3:GetBucketLocation"}, Resource: []string{arn}},
+			{Effect: "Allow", Action: []string{"s3:ListBucket"}, Resource: []string{arn},
+				Condition: map[string]any{"StringLike": map[string][]string{"s3:prefix": {"landing/", "landing/*"}}}},
+			{Effect: "Allow", Action: []string{"s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"},
+				Resource: []string{arn + "/landing/*"}},
+		}
+	}
+	return out
+}
+
+// RangerPolicy is an Apache Ranger policy for the Trino service, in the shape
+// of Ranger's public API (without the service and IDs).
+type RangerPolicy struct {
+	Name                 string                    `json:"name"`
+	PolicyType           int                       `json:"policyType"` // 0 access, 1 masking, 2 row filter
+	Resources            map[string]RangerResource `json:"resources"`
+	PolicyItems          []RangerItem              `json:"policyItems,omitempty"`
+	DataMaskPolicyItems  []RangerItem              `json:"dataMaskPolicyItems,omitempty"`
+	RowFilterPolicyItems []RangerItem              `json:"rowFilterPolicyItems,omitempty"`
+	Description          string                    `json:"description,omitempty"`
+}
+
+type RangerResource struct {
+	Values      []string `json:"values"`
+	IsExcludes  bool     `json:"isExcludes"`
+	IsRecursive bool     `json:"isRecursive"`
+}
+
+type RangerItem struct {
+	Groups        []string         `json:"groups"`
+	Users         []string         `json:"users"`
+	DelegateAdmin bool             `json:"delegateAdmin"`
+	Accesses      []RangerAccess   `json:"accesses"`
+	DataMaskInfo  *RangerMask      `json:"dataMaskInfo,omitempty"`
+	RowFilterInfo *RangerRowFilter `json:"rowFilterInfo,omitempty"`
+}
+
+type RangerAccess struct {
+	Type      string `json:"type"`
+	IsAllowed bool   `json:"isAllowed"`
+}
+
+type RangerMask struct {
+	DataMaskType string `json:"dataMaskType"`
+}
+
+type RangerRowFilter struct {
+	FilterExpr string `json:"filterExpr"`
+}
+
+func resources(kv ...string) map[string]RangerResource {
+	out := map[string]RangerResource{}
+	for i := 0; i+1 < len(kv); i += 2 {
+		out[kv[i]] = RangerResource{Values: []string{kv[i+1]}}
+	}
+	return out
+}
+
+func allow(group string, accesses ...string) RangerItem {
+	it := RangerItem{Groups: []string{group}, Users: []string{}}
+	for _, a := range accesses {
+		it.Accesses = append(it.Accesses, RangerAccess{Type: a, IsAllowed: true})
+	}
+	return it
+}
+
+// RangerPolicies are the Ranger policies for the project's tables: one per
+// resource (Ranger allows no more), named with RangerPrefix.
+func (p *Project) RangerPolicies() []RangerPolicy {
+	t := p.Spec.Tables
+	if t == nil {
+		return nil
+	}
+	readers, editors, pipelines := p.Group(Reader), p.Group(Editor), p.Group("pipelines")
+	hasPipelines := p.Spec.Pipelines != nil
+	desc := "From the project " + p.Metadata.Name + ": the platform operator keeps it as the project says."
+	named := func(n string) string { return p.RangerPrefix() + n }
+
+	schema := RangerPolicy{Name: named("namespace"), Description: desc,
+		Resources:   resources("catalog", t.Catalog, "schema", t.Namespace),
+		PolicyItems: []RangerItem{allow(editors, "all"), allow(readers, "use", "show")}}
+	tables := RangerPolicy{Name: named("tables"), Description: desc,
+		Resources:   resources("catalog", t.Catalog, "schema", t.Namespace, "table", "*", "column", "*"),
+		PolicyItems: []RangerItem{allow(editors, "all")}}
+	if hasPipelines {
+		schema.PolicyItems = append(schema.PolicyItems, allow(pipelines, "use", "show"))
+		tables.PolicyItems = append(tables.PolicyItems, allow(pipelines, "select", "insert", "delete", "show"))
+	}
+	var view ReaderView
+	if t.Readers != nil {
+		view = *t.Readers
+	}
+	out := []RangerPolicy{schema}
+	if len(view.Tables) == 0 {
+		tables.PolicyItems = append(tables.PolicyItems, allow(readers, "select", "show"))
+		out = append(out, tables)
+	} else {
+		out = append(out, tables)
+		for _, tb := range sorted(view.Tables) {
+			out = append(out, RangerPolicy{Name: named("read:" + tb), Description: desc,
+				Resources:   resources("catalog", t.Catalog, "schema", t.Namespace, "table", tb, "column", "*"),
+				PolicyItems: []RangerItem{allow(readers, "select", "show")}})
+		}
+	}
+	for _, m := range view.Masks {
+		it := allow(readers, "select")
+		it.DataMaskInfo = &RangerMask{DataMaskType: m.Type}
+		out = append(out, RangerPolicy{Name: named("mask:" + m.Table + "." + m.Column), PolicyType: 1, Description: desc,
+			Resources:           resources("catalog", t.Catalog, "schema", t.Namespace, "table", m.Table, "column", m.Column),
+			DataMaskPolicyItems: []RangerItem{it}})
+	}
+	for _, f := range view.RowFilters {
+		it := allow(readers, "select")
+		it.RowFilterInfo = &RangerRowFilter{FilterExpr: f.Filter}
+		out = append(out, RangerPolicy{Name: named("filter:" + f.Table), PolicyType: 2, Description: desc,
+			Resources:            resources("catalog", t.Catalog, "schema", t.Namespace, "table", f.Table),
+			RowFilterPolicyItems: []RangerItem{it}})
+	}
+	return out
+}
+
+func sorted(s []string) []string {
+	out := slices.Clone(s)
+	sort.Strings(out)
+	return slices.Compact(out)
+}

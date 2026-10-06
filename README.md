@@ -12,7 +12,9 @@ StorScale Platform is one open data platform on [StorScale Buckets](https://gith
 
 People sign in once to one place. They work in **projects**: a project brings together a team's data, notebooks, pipelines and dashboards, and the access to them. Access is granted once, and the platform puts it into every tool.
 
-> **Status:** phase 1 of [the plan](docs/plan.md). The platform has one web app with one sign-in. Notebooks, SQL, dashboards, pipelines and monitoring open inside it.
+> **Status:** phase 2 of [the plan](docs/plan.md).
+> - **One web app** with one sign-in. Notebooks, SQL, dashboards, pipelines and monitoring open inside it.
+> - **Projects:** an administrator defines a project, and the platform applies its access in Keycloak, Ranger, Buckets and Nessie.
 
 ## Try it
 

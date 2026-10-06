@@ -1,4 +1,4 @@
-# platformd and the platform's web app, in one image.
+# platformd and the platform's web app, and platform-operator, in one image.
 #
 #   docker build -f docker/platformd.Dockerfile -t storscale/platformd .
 
@@ -14,10 +14,10 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/platformd ./cmd/platformd
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ ./cmd/platformd ./cmd/platform-operator
 
 FROM gcr.io/distroless/static-debian13:nonroot
-COPY --from=build /out/platformd /usr/bin/platformd
+COPY --from=build /out/platformd /out/platform-operator /usr/bin/
 COPY --from=web /src/web/dist /usr/share/storscale/web
 EXPOSE 8080
 ENTRYPOINT ["/usr/bin/platformd"]

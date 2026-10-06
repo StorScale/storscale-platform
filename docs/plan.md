@@ -101,6 +101,11 @@ Its status reports each piece.
 
 The examples already prove every mapping in this list by hand.
 
+**Phase 2 delivered (2026-10-06)** the parts that cover access: `members`, `tables` (with the readers' view: tables, row filters and masks), `files` and `pipelines.serviceAccount`, applied to Keycloak, Ranger, Buckets and Nessie (`stack/projects/sales.json` is one). Still to come:
+- notebook profiles and quotas;
+- a pipelines repo and DAG folder per project;
+- Superset and Airflow roles per project. Until then, those tools' roles come from the platform-wide groups, while their data access already follows the project through Trino and Buckets.
+
 ## Matching Dataiku
 
 | Dataiku | StorScale Platform | When |

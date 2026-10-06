@@ -5,7 +5,7 @@
     s3.put_object(Bucket="home", Key=f"{buckets_lake.username()}/notes.txt", Body=b"...")
 
     import io, pandas as pd                      # pandas, through the same client
-    df = pd.read_parquet(io.BytesIO(s3.get_object(Bucket="datasets", Key="sales/orders.parquet")["Body"].read()))
+    df = pd.read_parquet(io.BytesIO(s3.get_object(Bucket="sales", Key="datasets/orders.parquet")["Body"].read()))
 
 No keys live in the notebook. The hub keeps the person's Keycloak tokens (and
 refreshes them); this asks the hub for the current one with the server's own

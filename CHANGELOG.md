@@ -7,6 +7,14 @@ All notable changes to StorScale Platform are recorded here, in the [Keep a Chan
 ### Added
 - The plan: a semantic layer that agents can use (phase 4). MetricFlow holds the definitions, there's an editor in the shell, and an MCP server lets agents query as the person or service account asking, under Ranger's rules.
 - The plan: [docs/plan.md](docs/plan.md). It covers the architecture, the `Project` object, a map of Dataiku's features onto open-source tools, the phases and the decisions.
+- **Phase 2:** projects.
+  - **What a project is:** a team's tables (an Iceberg namespace), files (a bucket) and pipelines (a Keycloak service account), and who may use them. Members are Keycloak groups or people, as readers or editors. Readers can be narrowed to some tables, with row filters and column masks.
+  - **`platform-operator`:** applies each project to Keycloak (groups and their members), Ranger (the same groups, and the tables' policies), Buckets (the bucket and its policies) and Nessie (the namespace). It writes back each project's status, applies it again when it changes and every minute, and undoes it when it's deleted. The data stays.
+  - **The Projects pages:** a list, each project's members and what each role gets, the operator's status, and an editor (a form, or JSON). The Access page shows who has which role in which project. Administrators (engineers) make and change projects; everyone else sees the projects they're in.
+  - **The API:** `GET`, `PUT` and `DELETE` on `/api/projects/<name>`, and `GET /api/access`.
+  - **The `Project` custom resource** (`deploy/crds/project.yaml`) is ready for Kubernetes (phase 5). Until then, projects live in a Buckets bucket.
+  - **The `sales` project now grants the guides' access to the sales tables and files.** It replaces the setup scripts' grants. Its files moved to the `sales` bucket: `datasets/` for the shared data, and `landing/` for the pipelines.
+  - **The `projects` suite:** an administrator creates a project and its member gets its tables and bucket while nobody else does. Deleting `sales` takes its access away in Trino, Buckets and Keycloak, but keeps its data. Creating it again gives the access back.
 - **Phase 1:** the platform's web app at `http://storscale.localhost:8800`.
   - **What's in it:** one sign-in with Keycloak, a sidebar with every tool, a Home page with each person's tools and access, and sign-out (which also ends the Keycloak session). People in neither group are refused.
   - **The tools open inside it:** notebooks (JupyterLab), SQL (Superset's SQL Lab), dashboards, pipelines (Airflow) and monitoring (Grafana), each already signed in. A tool stays where it was when you switch to another.

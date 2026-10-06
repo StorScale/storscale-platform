@@ -1,0 +1,95 @@
+# The Project custom resource: StorScale Platform's central object, on
+# Kubernetes. It has the same shape as the projects platformd keeps in its
+# store (internal/project), and the platform operator applies it the same way.
+# The operator reads Projects from Kubernetes from phase 5 (docs/plan.md);
+# until then it reads them from the store.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: projects.platform.storscale.io
+spec:
+  group: platform.storscale.io
+  scope: Namespaced
+  names:
+    kind: Project
+    listKind: ProjectList
+    plural: projects
+    singular: project
+    shortNames: [proj]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - {name: Phase, type: string, jsonPath: .status.phase}
+        - {name: Members, type: integer, jsonPath: .status.memberCount}
+        - {name: Age, type: date, jsonPath: .metadata.creationTimestamp}
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [members]
+              properties:
+                description: {type: string, maxLength: 500}
+                members:
+                  type: array
+                  minItems: 1
+                  description: Keycloak groups or people, each with a role. A group's members are the project's for as long as they're in it.
+                  items:
+                    type: object
+                    required: [role]
+                    properties:
+                      group: {type: string, maxLength: 100}
+                      user: {type: string, maxLength: 100}
+                      role: {type: string, enum: [reader, editor]}
+                    x-kubernetes-validations:
+                      - rule: has(self.group) != has(self.user)
+                        message: give a group or a user, not both
+                tables:
+                  type: object
+                  description: An Iceberg namespace in Nessie, queried through Trino under Ranger's policies.
+                  properties:
+                    catalog: {type: string, default: iceberg, pattern: '^[a-z_][a-z0-9_]{0,62}$'}
+                    namespace: {type: string, pattern: '^[a-z_][a-z0-9_]{0,62}$'}
+                    readers:
+                      type: object
+                      description: What readers see. Editors and pipelines see everything.
+                      properties:
+                        tables:
+                          type: array
+                          items: {type: string, pattern: '^[a-z_][a-z0-9_]{0,62}$'}
+                        rowFilters:
+                          type: array
+                          items:
+                            type: object
+                            required: [table, filter]
+                            properties:
+                              table: {type: string, pattern: '^[a-z_][a-z0-9_]{0,62}$'}
+                              filter: {type: string, minLength: 1}
+                        masks:
+                          type: array
+                          items:
+                            type: object
+                            required: [table, column, type]
+                            properties:
+                              table: {type: string, pattern: '^[a-z_][a-z0-9_]{0,62}$'}
+                              column: {type: string, pattern: '^[a-z_][a-z0-9_]{0,62}$'}
+                              type: {type: string, enum: [MASK, MASK_SHOW_LAST_4, MASK_SHOW_FIRST_4, MASK_HASH, MASK_NULL, MASK_NONE, MASK_DATE_SHOW_YEAR]}
+                files:
+                  type: object
+                  description: A bucket in Buckets.
+                  properties:
+                    bucket: {type: string, pattern: '^[a-z][a-z0-9-]{1,38}[a-z0-9]$'}
+                pipelines:
+                  type: object
+                  required: [serviceAccount]
+                  description: The Keycloak client whose service account runs the project's pipelines.
+                  properties:
+                    serviceAccount: {type: string, maxLength: 100}
+            status:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true

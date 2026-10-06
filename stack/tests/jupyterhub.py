@@ -10,7 +10,8 @@ Jupyter Server API:
   2. each notebook gets its person's own token and Buckets credentials, and no
      keys of any kind;
   3. each person reads and writes home/<them>/ only;
-  4. analysts read the shared datasets, and only engineers write them;
+  4. the sales project's files: analysts (readers) read them, and only
+     engineers (editors) write them;
   5. what notebooks write is in Buckets, under each person's prefix.
 """
 import html
@@ -119,7 +120,7 @@ me = buckets_lake.username()
 other = OTHER
 claims = json.loads(base64.urlsafe_b64decode(buckets_lake.token().split(".")[1] + "=="))
 s3 = buckets_lake.s3()
-orders = pd.read_parquet(io.BytesIO(s3.get_object(Bucket="datasets", Key="sales/orders.parquet")["Body"].read()))
+orders = pd.read_parquet(io.BytesIO(s3.get_object(Bucket="sales", Key="datasets/orders.parquet")["Body"].read()))
 print(json.dumps({
     "user": me,
     "token_user": claims.get("preferred_username"), "token_groups": claims.get("groups"),
@@ -131,7 +132,7 @@ print(json.dumps({
     "list_other": code(lambda: s3.list_objects_v2(Bucket="home", Prefix=f"{other}/")),
     "put_other": code(lambda: s3.put_object(Bucket="home", Key=f"{other}/hello.txt", Body=b"hi")),
     "orders": len(orders),
-    "write_datasets": code(lambda: s3.put_object(Bucket="datasets", Key=f"from-{me}.txt", Body=b"x")),
+    "write_datasets": code(lambda: s3.put_object(Bucket="sales", Key=f"datasets/from-{me}.txt", Body=b"x")),
 }))
 '''
 
@@ -160,7 +161,9 @@ def main():
 
     # 1. Keycloak sign-in, groups and hub roles.
     check("people sign in to JupyterHub with Keycloak, and their groups come along",
-          alice["groups"] == ["analysts"] and bob["groups"] == ["engineers"],
+          # (and their projects' groups: sales-readers, sales-editors)
+          {"analysts", "sales-readers"} <= set(alice["groups"]) and {"engineers", "sales-editors"} <= set(bob["groups"])
+          and "engineers" not in alice["groups"],
           f"alice {alice['groups']}, bob {bob['groups']}")
     check("Keycloak's engineers group administers the hub, and analysts don't",
           bob["admin"] is True and alice["admin"] is False, f"bob admin={bob['admin']}, alice admin={alice['admin']}")

@@ -3,14 +3,13 @@
   - Ranger: a user for Superset's service account, "superset", and the
     lakehouse's policies plus one: superset may run queries as anyone
     (impersonate). Each query then runs as the person in Superset, so Ranger
-    applies that person's policies, masks and row filters;
-  - data: iceberg.sales.orders and iceberg.sales.payroll, written by bob.
+    applies that person's policies, masks and row filters.
 
 Safe to run again.
 """
 import importlib.util
 
-from lakekit import allow, load_sales_tables, log, ranger, res, setup_ranger
+from lakekit import allow, log, ranger, res, setup_ranger
 
 # The lakehouse's policies (../lakehouse/tools/setup.py), so there's one list.
 spec = importlib.util.spec_from_file_location("lakehouse_setup", "/tools/setup/lakehouse.py")
@@ -41,6 +40,4 @@ if __name__ == "__main__":
             "name": SERVICE_USER, "firstName": "Superset", "password": "unused-Sup3rset",
             "userRoleList": ["ROLE_USER"], "status": 1, "userSource": 1})
     setup_ranger(POLICIES)
-
-    load_sales_tables()
     log("done")

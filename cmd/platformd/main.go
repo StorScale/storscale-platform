@@ -15,6 +15,8 @@
 //	PLATFORM_ADMIN_GROUPS the groups that also see administrators' tools (engineers)
 //	PLATFORM_LISTEN       the address to listen on (:8080)
 //	PLATFORM_WEB_DIR      the web app's files (/usr/share/storscale/web)
+//	STORE_URL, STORE_BUCKET, STORE_ACCESS_KEY, STORE_SECRET_KEY
+//	                      the project store (Buckets); without it, there are no projects
 //
 // `platformd healthcheck` checks a running platformd, for container health checks.
 package main
@@ -80,10 +82,11 @@ func healthcheck() int {
 }
 
 type config struct {
-	PlatformURL, KeycloakURL, KeycloakDirectURL, Realm string
-	ClientID, ClientSecret                             string
-	Groups, AdminGroups                                []string
-	Listen, WebDir                                     string
+	PlatformURL, KeycloakURL, KeycloakDirectURL, Realm    string
+	ClientID, ClientSecret                                string
+	Groups, AdminGroups                                   []string
+	Listen, WebDir                                        string
+	StoreURL, StoreBucket, StoreAccessKey, StoreSecretKey string
 }
 
 func (c config) issuer() string { return c.KeycloakURL + "/realms/" + c.Realm }
@@ -116,6 +119,8 @@ func configFromEnv(get func(string) string) (config, error) {
 		AdminGroups:  list("PLATFORM_ADMIN_GROUPS", "engineers"),
 		Listen:       or("PLATFORM_LISTEN", ":8080"),
 		WebDir:       or("PLATFORM_WEB_DIR", "/usr/share/storscale/web"),
+		StoreURL:     get("STORE_URL"), StoreBucket: or("STORE_BUCKET", "storscale-platform"),
+		StoreAccessKey: get("STORE_ACCESS_KEY"), StoreSecretKey: get("STORE_SECRET_KEY"),
 	}
 	c.KeycloakDirectURL = strings.TrimRight(or("KEYCLOAK_DIRECT_URL", c.KeycloakURL), "/")
 	var missing []string

@@ -26,6 +26,7 @@
 name: storscale
 
 x-urls: &urls
+  PLATFORM_URL: http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}
   KEYCLOAK_URL: http://auth.${STORSCALE_DOMAIN}:${STORSCALE_PORT}
   NOTEBOOKS_URL: http://notebooks.${STORSCALE_DOMAIN}:${STORSCALE_PORT}
   DASHBOARDS_URL: http://dashboards.${STORSCALE_DOMAIN}:${STORSCALE_PORT}
@@ -41,6 +42,7 @@ x-tools: &tools
     PYTHONPATH: /tools
   volumes:
     - ./tools:/tools:ro
+    - ./projects:/projects:ro
     - tls:/tls
     - prometheus-token:/token
 
@@ -140,6 +142,7 @@ services:
       LAKEHOUSE_USER_PASSWORD: ${LAKEHOUSE_USER_PASSWORD}
       JUPYTERHUB_OAUTH_SECRET: ${JUPYTERHUB_OAUTH_SECRET}
       PLATFORM_OAUTH_SECRET: ${PLATFORM_OAUTH_SECRET}
+      OPERATOR_CLIENT_SECRET: ${OPERATOR_CLIENT_SECRET}
       SUPERSET_OAUTH_SECRET: ${SUPERSET_OAUTH_SECRET}
       GRAFANA_OAUTH_SECRET: ${GRAFANA_OAUTH_SECRET}
       AIRFLOW_OAUTH_SECRET: ${AIRFLOW_OAUTH_SECRET}
@@ -163,10 +166,36 @@ services:
       KEYCLOAK_URL: http://auth.${STORSCALE_DOMAIN}:${STORSCALE_PORT}
       KEYCLOAK_DIRECT_URL: http://keycloak:8080
       OIDC_CLIENT_SECRET: ${PLATFORM_OAUTH_SECRET}
+      # The project store: a bucket in Buckets, with platformd's own account.
+      STORE_URL: http://buckets:9000
+      STORE_ACCESS_KEY: ${PLATFORM_STORE_ACCESS_KEY}
+      STORE_SECRET_KEY: ${PLATFORM_STORE_SECRET_KEY}
     depends_on:
       keycloak: {condition: service_healthy}
     healthcheck:
       test: ["CMD", "/usr/bin/platformd", "healthcheck"]
+      interval: 5s
+      retries: 60
+
+  # Applies projects to Keycloak, Ranger, Buckets and Nessie, and writes
+  # back each one's status.
+  platform-operator:
+    image: ${PLATFORMD_IMAGE}
+    entrypoint: ["/usr/bin/platform-operator"]
+    environment:
+      STORE_URL: http://buckets:9000
+      BUCKETS_ACCESS_KEY: ${BUCKETS_ROOT_USER}
+      BUCKETS_SECRET_KEY: ${BUCKETS_ROOT_PASSWORD}
+      KEYCLOAK_DIRECT_URL: http://keycloak:8080
+      OPERATOR_CLIENT_SECRET: ${OPERATOR_CLIENT_SECRET}
+      RANGER_URL: http://ranger-admin:6080
+      RANGER_PASSWORD: ${RANGER_PASSWORD}
+      NESSIE_URL: http://nessie:19120
+    depends_on:
+      setup: {condition: service_completed_successfully}
+      nessie: {condition: service_started}
+    healthcheck:
+      test: ["CMD", "/usr/bin/platform-operator", "healthcheck"]
       interval: 5s
       retries: 60
 
@@ -312,6 +341,7 @@ services:
     depends_on:
       setup: {condition: service_completed_successfully}
       trino: {condition: service_healthy}
+      platform-operator: {condition: service_healthy}
 
   # --- Notebooks: JupyterHub, a container per person ----------------------------------
   # Builds the image JupyterHub starts for each person, then exits.
@@ -326,7 +356,6 @@ services:
     command: ["jupyterhub", "-f", "/etc/jupyterhub/jupyterhub_config.py"]
     environment:
       <<: *urls
-      PLATFORM_URL: http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}
       JUPYTERHUB_OAUTH_SECRET: ${JUPYTERHUB_OAUTH_SECRET}
       JUPYTERHUB_CRYPT_KEY: ${JUPYTERHUB_CRYPT_KEY}
     volumes:
@@ -502,6 +531,7 @@ services:
     volumes:
       - ./tools:/tools:ro
       - ./tests:/tests:ro
+      - ./projects:/projects:ro
       - ./monitoring/dashboards:/dashboards:ro
       - tls:/tls
       - drive3:/drive3

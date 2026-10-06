@@ -7,7 +7,7 @@ Airflow's REST API with the token the sign-in gave them, as Airflow's UI does:
      groups as their Airflow roles (Op, Viewer); carol (no group) is refused;
   2. the roles mean what they say: alice can't trigger a pipeline, bob can;
   3. bob's run of sales_ingest succeeds, and its tasks ran as the pipelines'
-     service account, not as bob: in Buckets (landing/ only, through STS) and
+     service account, not as bob: in Buckets (the sales project's landing/, through STS) and
      in Trino, where Ranger applies, and audits, the pipelines group's policies;
   4. Airflow holds no S3 keys or Trino password: its one connection is the
      service account's Keycloak client.
@@ -92,8 +92,8 @@ def main():
         result = ast.literal_eval(result)
     check("its tasks ran in Trino as the pipelines' service account, not as bob",
           result.get("trino_user") == SERVICE_ACCOUNT, f"current_user: {result.get('trino_user')}")
-    landed = [k for k in keys(s3_root(), "landing", "sales/") if run and run.replace(":", "-").replace("+", "-") in k]
-    check("... and landed its file in Buckets with STS credentials, landing/ only",
+    landed = [k for k in keys(s3_root(), "sales", "landing/") if run and run.replace(":", "-").replace("+", "-") in k]
+    check("... and landed its file in the project's bucket with STS credentials, landing/ only",
           landed and result.get("warehouse") == "AccessDenied",
           f"{', '.join(landed) or 'nothing landed'}; the same credentials on warehouse: {result.get('warehouse')}")
     count = sql("bob", "SELECT count(*) FROM orders WHERE id IN (101, 102)", catalog="iceberg", schema="sales")[0][0]

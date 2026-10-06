@@ -18,6 +18,8 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
+
+	"github.com/StorScale/storscale-platform/internal/store"
 )
 
 const (
@@ -54,6 +56,7 @@ type server struct {
 	verifier *oidc.IDTokenVerifier
 	secure   bool // cookies only over HTTPS (or to localhost names, which browsers count as secure)
 	now      func() time.Time
+	store    *store.Store // nil: no projects
 
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -86,6 +89,11 @@ func newServer(ctx context.Context, cfg config, log *slog.Logger) (*server, erro
 		sessions: map[string]*session{},
 		logins:   map[string]*login{},
 	}
+	if cfg.StoreURL != "" {
+		if s.store, err = store.New(cfg.StoreURL, cfg.StoreAccessKey, cfg.StoreSecretKey, cfg.StoreBucket); err != nil {
+			return nil, err
+		}
+	}
 	go s.sweep(ctx)
 	return s, nil
 }
@@ -97,6 +105,11 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /auth/callback", s.handleCallback)
 	mux.HandleFunc("POST /auth/logout", s.handleLogout)
 	mux.HandleFunc("GET /api/session", s.handleSession)
+	mux.HandleFunc("GET /api/projects", s.handleProjects)
+	mux.HandleFunc("GET /api/projects/{name}", s.handleProject)
+	mux.HandleFunc("PUT /api/projects/{name}", s.handlePutProject)
+	mux.HandleFunc("DELETE /api/projects/{name}", s.handleDeleteProject)
+	mux.HandleFunc("GET /api/access", s.handleAccess)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	})
@@ -175,7 +188,8 @@ func (s *server) handleSession(w http.ResponseWriter, r *http.Request) {
 			"error": "Your account isn't in a group that may use StorScale Platform (" + strings.Join(s.cfg.Groups, ", ") + ")."})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"user": sess.User, "tools": toolsFor(s.cfg.PlatformURL, sess.User.Groups, s.cfg.AdminGroups)})
+	writeJSON(w, http.StatusOK, map[string]any{"user": sess.User, "tools": toolsFor(s.cfg.PlatformURL, sess.User.Groups, s.cfg.AdminGroups),
+		"admin": s.isAdmin(sess.User), "projects": s.store != nil})
 }
 
 // handleLogout ends the platform's session and returns Keycloak's logout

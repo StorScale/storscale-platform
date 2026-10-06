@@ -1,17 +1,17 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Tool, User } from "../api";
+import { listProjects, ProjectView, Tool, User } from "../api";
 
-const GROUPS: Record<string, string> = {
-  analysts: "Analysts read the sales tables (EU orders, card numbers masked), their own files, and the shared datasets.",
-  engineers: "Engineers build and change tables, write the shared datasets, run pipelines, and edit dashboards.",
-};
-
-export default function Home({ user, tools }: { user: User; tools: Tool[] }) {
+export default function Home({ user, tools, projects }: { user: User; tools: Tool[]; projects: boolean }) {
   const first = (user.name || user.username).split(" ")[0];
+  const [mine, setMine] = useState<ProjectView[]>();
+  useEffect(() => {
+    if (projects) listProjects().then((r) => setMine(r.projects.filter((p) => p.role))).catch(() => setMine([]));
+  }, [projects]);
   return (
     <div className="home">
       <h1 data-testid="greeting">Welcome, {first}</h1>
-      <p className="muted lead">Everything below uses your one sign-in. What you can see and change follows your groups.</p>
+      <p className="muted lead">Everything below uses your one sign-in. What you can see and change follows your projects.</p>
       <div className="tool-grid">
         {tools.map((t) => (
           <Link key={t.id} to={`/tools/${t.id}`} className="tool-card" data-testid={`card-${t.id}`}>
@@ -20,13 +20,22 @@ export default function Home({ user, tools }: { user: User; tools: Tool[] }) {
           </Link>
         ))}
       </div>
-      <h2>Your access</h2>
-      <div className="card">
-        {user.groups.filter((g) => GROUPS[g]).map((g) => (
-          <p key={g}><span className="pill">{g}</span> {GROUPS[g]}</p>
-        ))}
-        <p className="muted">Trino, for JDBC and CLI clients, is at <code>https://localhost:8443</code>: sign in with a Keycloak token.</p>
-      </div>
+      {projects && (
+        <>
+          <h2>Your projects</h2>
+          <div className="card" data-testid="my-projects">
+            {mine === undefined ? <div className="spinner" /> : mine.length === 0 ? (
+              <p className="muted">You're not in any project yet. Ask an administrator to add you.</p>
+            ) : mine.map((p) => (
+              <p key={p.name}>
+                <Link to={`/projects/${p.name}`}><strong>{p.name}</strong></Link> <span className={`pill ${p.role}`}>{p.role}</span>{" "}
+                <span className="muted">{p.spec?.spec.description}</span>
+              </p>
+            ))}
+            <p className="muted">Trino, for JDBC and CLI clients, is at <code>https://localhost:8443</code>: sign in with a Keycloak token.</p>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -2,7 +2,8 @@
 
 Runs the Buckets integration guides' checks against the one platform, one
 suite at a time. The suites share the lakehouse's sales tables, so they're
-loaded afresh before each suite that reads them. monitoring runs last: it
+loaded afresh before each suite that reads them. projects deletes the sales
+project and makes it again, after the suites that use it. monitoring runs last: it
 fails one of Buckets' four drives for a minute, as a failing disk would.
 """
 import subprocess
@@ -11,7 +12,7 @@ import time
 
 from lakekit import load_sales_tables
 
-SUITES = ["lakehouse", "superset", "airflow", "jupyterhub", "monitoring"]
+SUITES = ["lakehouse", "superset", "airflow", "jupyterhub", "projects", "monitoring"]
 FRESH_TABLES = {"superset", "airflow"}
 
 wanted = sys.argv[1:] or SUITES

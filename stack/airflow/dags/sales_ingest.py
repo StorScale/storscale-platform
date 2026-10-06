@@ -26,9 +26,9 @@ def sales_ingest():
         run = get_current_context()["run_id"].replace(":", "-").replace("+", "-")
         buf = io.StringIO()
         csv.writer(buf).writerows(NEW_ORDERS)
-        key = f"sales/orders-{run}.csv"
-        s3.put_object(Bucket="landing", Key=key, Body=buf.getvalue().encode())
-        try:                                        # the pipelines' policy covers landing/ only
+        key = f"landing/orders-{run}.csv"
+        s3.put_object(Bucket="sales", Key=key, Body=buf.getvalue().encode())
+        try:                                        # the project's pipelines policy covers sales/landing/ only
             s3.list_objects_v2(Bucket="warehouse")
             warehouse = "OK"
         except ClientError as e:
@@ -38,7 +38,7 @@ def sales_ingest():
     @task
     def load_orders(landed):
         from lakehouse_identity import buckets_s3, trino
-        body = buckets_s3().get_object(Bucket="landing", Key=landed["key"])["Body"].read().decode()
+        body = buckets_s3().get_object(Bucket="sales", Key=landed["key"])["Body"].read().decode()
         rows = list(csv.reader(io.StringIO(body)))
         cur = trino().cursor()
         cur.execute("SELECT current_user")

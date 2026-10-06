@@ -154,14 +154,15 @@ def allow(accesses, groups=(), users=()):
 # Everyone who may use Trino at all: run queries, and act as themselves.
 BASE_POLICIES = [
     {"name": "run queries", "resources": res(queryid="*"),
-     "policyItems": [allow(["execute"], groups=["analysts", "engineers"])]},
+     "policyItems": [allow(["execute"], groups=["analysts", "engineers", "pipelines"])]},
     {"name": "act as yourself", "resources": res(trinouser="{USER}"),
      "policyItems": [allow(["impersonate"], users=["{USER}"])]},
 ]
 
 
 def setup_ranger(policies):
-    """The plugin's user, the Trino service, and exactly these policies."""
+    """The plugin's user, the Trino service, and exactly these policies, beside
+    the projects' (named project:..., which the platform operator keeps)."""
     users = {u["name"] for u in ranger("GET", "/service/xusers/users?pageSize=1000")["vXUsers"]}
     if PLUGIN_USER not in users:
         ranger("POST", "/service/xusers/secure/users", json={
@@ -184,7 +185,7 @@ def setup_ranger(policies):
     existing = {p["name"]: p for p in ranger("GET", f"/service/public/v2/api/service/{RANGER_SERVICE}/policy")}
     wanted = {p["name"] for p in policies}
     for name, p in existing.items():  # Ranger's default policies, and any of ours since removed
-        if name not in wanted:
+        if name not in wanted and not name.startswith("project:"):
             ranger("DELETE", f"/service/public/v2/api/policy/{p['id']}")
     for p in policies:
         body = {"service": RANGER_SERVICE, "isEnabled": True, "policyType": 0, **p}
@@ -295,13 +296,22 @@ def s3_root():
     return s3(aws_access_key_id=env["BUCKETS_ROOT_USER"], aws_secret_access_key=env["BUCKETS_ROOT_PASSWORD"])
 
 
-def s3_as(user):
-    """Buckets credentials for a person: their Keycloak token through STS."""
+def service_token(client_id, secret):
+    """A Keycloak access token for a client's service account (client credentials)."""
+    r = requests.post(f"{KEYCLOAK}/realms/{REALM}/protocol/openid-connect/token", timeout=10, data={
+        "grant_type": "client_credentials", "client_id": client_id, "client_secret": secret})
+    r.raise_for_status()
+    return r.json()["access_token"]
+
+
+def s3_as(user, web_token=None):
+    """Buckets credentials for a person (or, given its token, a service
+    account): their Keycloak token through STS."""
     import boto3
     sts = boto3.client("sts", endpoint_url=BUCKETS, region_name="us-east-1",
                        aws_access_key_id="unused", aws_secret_access_key="unused")
     c = sts.assume_role_with_web_identity(RoleArn="arn:minio:iam:::role/lakehouse", RoleSessionName=user,
-                                          WebIdentityToken=token(user), DurationSeconds=900)["Credentials"]
+                                          WebIdentityToken=web_token or token(user), DurationSeconds=900)["Credentials"]
     return s3(aws_access_key_id=c["AccessKeyId"], aws_secret_access_key=c["SecretAccessKey"],
               aws_session_token=c["SessionToken"])
 

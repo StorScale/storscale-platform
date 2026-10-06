@@ -1,0 +1,22 @@
+{
+  "apiVersion": "platform.storscale.io/v1alpha1",
+  "kind": "Project",
+  "metadata": {"name": "sales"},
+  "spec": {
+    "description": "Orders and payroll: the tables the integration guides use.",
+    "members": [
+      {"group": "engineers", "role": "editor"},
+      {"group": "analysts", "role": "reader"}
+    ],
+    "tables": {
+      "namespace": "sales",
+      "readers": {
+        "tables": ["orders"],
+        "rowFilters": [{"table": "orders", "filter": "region = 'EU'"}],
+        "masks": [{"table": "orders", "column": "card_number", "type": "MASK_SHOW_LAST_4"}]
+      }
+    },
+    "files": {"bucket": "sales"},
+    "pipelines": {"serviceAccount": "airflow-pipelines"}
+  }
+}
