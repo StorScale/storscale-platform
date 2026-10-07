@@ -25,13 +25,20 @@ export async function session(): Promise<Session | null> {
   return { state: "signed-in", user: body.user, tools: body.tools, admin: !!body.admin, projects: !!body.projects, flow: !!body.flow, semantic: !!body.semantic, pipelines: !!body.pipelines };
 }
 
+// Set once signing out has begun: a request answered 401 after that (one
+// still in flight when the session ended) must not start a sign-in, which
+// would race the browser to Keycloak's sign-in page instead of its logout.
+let signingOut = false;
+
 export function signIn() {
+  if (signingOut) return;
   const next = window.location.pathname + window.location.search;
   window.location.assign(`/auth/login?next=${encodeURIComponent(next)}`);
 }
 
 // signOut ends the platform's session, then Keycloak's.
 export async function signOut() {
+  signingOut = true;
   const res = await fetch("/auth/logout", { method: "POST", headers: { "X-Platform-Request": "1" } });
   const body = await res.json().catch(() => ({}));
   window.location.assign(body.redirect ?? "/");

@@ -38,6 +38,7 @@ All notable changes to StorScale Platform are recorded here, in the [Keep a Chan
   - Ranger's admin server runs with a 512 MB heap instead of the 1 GB its start script pins.
   - Trino gets 1.5 GB instead of 2 GB, a heap of about 1.2 GB, and at most 512 MB for a query. The kernel had been stopping it when the VM ran short.
   - The browser suite waits for the pipeline run it starts to finish, so it never overlaps another suite's run.
+- **Signing out always ends the Keycloak session.** A request still in flight when the platform's session ended (Home loads each project's tables, metrics and pipelines) came back 401, and the app's "sign in again" could beat the browser to Keycloak's logout, which signed the person straight back in.
 - **The lakehouse setup step keeps Superset's Ranger policies.** It used to remove them, until the next step put them back, so every upgrade broke Superset's queries for about a minute.
 - **Buckets 1.12.0**, up from 1.7.0, which frees what it allocates.
 - **The catalog keeps working when the disk is nearly full.** OpenSearch made the catalog's indices read-only once the disk was 95% full, and then the pipeline's lineage reports hung until they timed out. That's the default for a cluster; on one node on a laptop, the disk thresholds are now off.
