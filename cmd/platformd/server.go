@@ -20,6 +20,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/StorScale/storscale-platform/internal/catalog"
+	"github.com/StorScale/storscale-platform/internal/pipelines"
 	"github.com/StorScale/storscale-platform/internal/store"
 )
 
@@ -58,8 +59,9 @@ type server struct {
 	verifier *oidc.IDTokenVerifier
 	secure   bool // cookies only over HTTPS
 	now      func() time.Time
-	store    *store.Store    // nil: no projects
-	catalog  *catalog.Client // nil: no Flow view
+	store    *store.Store      // nil: no projects
+	catalog  *catalog.Client   // nil: no Flow view
+	airflow  *pipelines.Client // nil: no pipelines
 
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -98,6 +100,9 @@ func newServer(ctx context.Context, cfg config, log *slog.Logger) (*server, erro
 			return nil, err
 		}
 	}
+	if cfg.AirflowURL != "" {
+		s.airflow = pipelines.New(cfg.AirflowURL, cfg.AirflowUser, cfg.AirflowPassword)
+	}
 	if cfg.CatalogURL != "" {
 		s.catalog = catalog.New(cfg.CatalogURL, cfg.CatalogTokenFile, "trino")
 	}
@@ -121,6 +126,9 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /api/projects/{name}/semantic", s.handleSemantic)
 	mux.HandleFunc("PUT /api/projects/{name}/semantic", s.handleSemantic)
 	mux.HandleFunc("POST /api/projects/{name}/semantic/query", s.handleSemantic)
+	mux.HandleFunc("POST /api/projects/{name}/sql", s.handleSemantic)
+	mux.HandleFunc("GET /api/projects/{name}/pipelines", s.handlePipelines)
+	mux.HandleFunc("POST /api/projects/{name}/pipelines/{pipeline}/runs", s.handleStartRun)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	})
@@ -201,7 +209,7 @@ func (s *server) handleSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"user": sess.User, "tools": toolsFor(s.cfg.PlatformURL, sess.User.Groups, s.cfg.AdminGroups),
-		"admin": s.isAdmin(sess.User), "projects": s.store != nil, "flow": s.catalog != nil, "semantic": s.cfg.SemanticURL != ""})
+		"admin": s.isAdmin(sess.User), "projects": s.store != nil, "flow": s.catalog != nil, "semantic": s.cfg.SemanticURL != "", "pipelines": s.airflow != nil})
 }
 
 // handleLogout ends the platform's session and returns Keycloak's logout

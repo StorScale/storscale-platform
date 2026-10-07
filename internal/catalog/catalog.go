@@ -35,11 +35,17 @@ type Flow struct {
 }
 
 type Table struct {
-	Name     string   `json:"name"` // as the project knows it (orders)
-	FQN      string   `json:"fqn"`  // as the catalog does (trino.iceberg.sales.orders)
-	Columns  []string `json:"columns"`
-	Checks   []Check  `json:"checks"`
-	External bool     `json:"external,omitempty"` // in the flow, but not the project's
+	Name        string   `json:"name"` // as the project knows it (orders)
+	FQN         string   `json:"fqn"`  // as the catalog does (trino.iceberg.sales.orders)
+	Description string   `json:"description,omitempty"`
+	Columns     []Column `json:"columns"`
+	Checks      []Check  `json:"checks"`
+	External    bool     `json:"external,omitempty"` // in the flow, but not the project's
+}
+
+type Column struct {
+	Name string `json:"name"`
+	Type string `json:"type"` // as the catalog shows it: bigint, varchar, decimal(10,2)
 }
 
 type Check struct {
@@ -86,12 +92,15 @@ func (c *Client) get(ctx context.Context, path string, out any) error {
 var errNotFound = fmt.Errorf("not found")
 
 type omTable struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	FQN     string `json:"fullyQualifiedName"`
-	Deleted bool   `json:"deleted"`
-	Columns []struct {
-		Name string `json:"name"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	FQN         string `json:"fullyQualifiedName"`
+	Description string `json:"description"`
+	Deleted     bool   `json:"deleted"`
+	Columns     []struct {
+		Name            string `json:"name"`
+		DataType        string `json:"dataType"`
+		DataTypeDisplay string `json:"dataTypeDisplay"`
 	} `json:"columns"`
 }
 
@@ -116,9 +125,13 @@ func (c *Client) Flow(ctx context.Context, trinoCatalog, namespace string) (*Flo
 			continue
 		}
 		ids[t.ID], inProject[t.FQN] = t.FQN, true
-		tb := Table{Name: t.Name, FQN: t.FQN, Columns: []string{}, Checks: []Check{}}
+		tb := Table{Name: t.Name, FQN: t.FQN, Description: t.Description, Columns: []Column{}, Checks: []Check{}}
 		for _, col := range t.Columns {
-			tb.Columns = append(tb.Columns, col.Name)
+			typ := strings.ToLower(col.DataTypeDisplay)
+			if typ == "" {
+				typ = strings.ToLower(col.DataType)
+			}
+			tb.Columns = append(tb.Columns, Column{Name: col.Name, Type: typ})
 		}
 		if tb.Checks, err = c.checks(ctx, t.FQN); err != nil {
 			return nil, err
@@ -142,7 +155,7 @@ func (c *Client) Flow(ctx context.Context, trinoCatalog, namespace string) (*Flo
 		for _, n := range lin.Nodes {
 			ids[n.ID] = n.FQN
 			if !inProject[n.FQN] {
-				external[n.FQN] = Table{Name: n.FQN, FQN: n.FQN, Columns: []string{}, Checks: []Check{}, External: true}
+				external[n.FQN] = Table{Name: n.FQN, FQN: n.FQN, Columns: []Column{}, Checks: []Check{}, External: true}
 			}
 		}
 		for _, e := range append(lin.Up, lin.Down...) {

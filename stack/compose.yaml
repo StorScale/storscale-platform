@@ -72,6 +72,7 @@ x-airflow: &airflow
   environment:
     <<: *urls
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__PARALLELISM: "4"   # LocalExecutor keeps this many workers; its default, 32, holds GBs
     AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD}@airflow-db:5432/airflow
     AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
@@ -236,6 +237,10 @@ services:
       CATALOG_URL: http://openmetadata:8585
       # The semantic layer, which platformd calls with the signed-in person's token.
       SEMANTIC_URL: http://semanticd:8000
+      # Airflow, for the projects' pipelines and their runs, as the platform's own Airflow account.
+      AIRFLOW_URL: http://airflow:8090/pipelines
+      AIRFLOW_USER: storscale-platform
+      AIRFLOW_PASSWORD: ${AIRFLOW_PLATFORM_PASSWORD}
     volumes:
       - catalog:/catalog:ro
     depends_on:
@@ -345,6 +350,14 @@ services:
   ranger-admin:
     restart: unless-stopped
     image: apache/ranger:2.9.0
+    # Ranger's start script pins a 1 GB heap (-Xms1g -Xmx1g): 512 MB is plenty
+    # for the platform's policies, and the stack has to fit a laptop's Docker.
+    entrypoint: ["bash", "-c"]
+    command:
+      - |
+        f=/opt/ranger/admin/ews/ranger-admin-services.sh
+        chmod u+w $$f && sed 's/^ranger_admin_max_heap_size=1g/ranger_admin_max_heap_size=512m/; s/-Xms1g/-Xms256m/' $$f > /tmp/services.sh &&
+          cat /tmp/services.sh > $$f && exec /home/ranger/scripts/ranger.sh
     environment:
       RANGER_DB_TYPE: postgres
       POSTGRES_PASSWORD: ${RANGER_PASSWORD}
@@ -423,7 +436,7 @@ services:
       - tls:/etc/trino/tls:ro
       - trino-auth:/etc/trino/auth:ro
     ports: ["${STORSCALE_BIND:-127.0.0.1}:8443:8443"]
-    mem_limit: 2g   # its heap is 80% of this (Trino's image); queries get at most 1 GB
+    mem_limit: 1536m   # its heap is 80% of this (Trino's image); a query gets at most 512 MB here
     depends_on:
       tls: {condition: service_completed_successfully}
       trino-passwords: {condition: service_completed_successfully}
@@ -529,6 +542,11 @@ services:
       - |
         airflow db migrate && airflow fab-db migrate &&
         airflow connections delete keycloak_pipelines >/dev/null 2>&1;
+        # The platform's own account, for the pipelines pages. (create exits 0
+        # when the user exists, so the password is set again either way.)
+        airflow users create --username storscale-platform --password "$$AIRFLOW_PLATFORM_PASSWORD" \
+          --firstname StorScale --lastname Platform --email platform@storscale.localhost --role Op >/dev/null 2>&1;
+        airflow users reset-password --username storscale-platform --password "$$AIRFLOW_PLATFORM_PASSWORD" >/dev/null &&
         airflow connections add keycloak_pipelines --conn-type http \
           --conn-host ${STORSCALE_DOMAIN} --conn-port ${STORSCALE_PORT} --conn-schema sso \
           --conn-login airflow-pipelines --conn-password "$$AIRFLOW_PIPELINES_SECRET" \
@@ -650,6 +668,9 @@ services:
       DISABLE_INSTALL_DEMO_CONFIG: "true"
       DISABLE_SECURITY_PLUGIN: "true"
       OPENSEARCH_JAVA_OPTS: -Xms384m -Xmx384m
+      # One node, on a laptop's disk: OpenSearch's thresholds (90% used, then 95%)
+      # would make the catalog's indices read-only, and its lineage calls hang.
+      cluster.routing.allocation.disk.threshold_enabled: "false"
     volumes:
       - openmetadata-search:/usr/share/opensearch/data
     healthcheck:

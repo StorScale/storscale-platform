@@ -262,3 +262,76 @@ func (s *server) handleFlow(w http.ResponseWriter, r *http.Request) {
 type errorString string
 
 func (e errorString) Error() string { return string(e) }
+
+// project is the signed-in person's view of one project, or writes why not.
+func (s *server) project(w http.ResponseWriter, r *http.Request, sess *session) *projectView {
+	views, err := s.views(r, sess.User)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "the project store isn't answering"})
+		return nil
+	}
+	for i := range views {
+		if views[i].Name == r.PathValue("name") && views[i].Spec != nil {
+			return &views[i]
+		}
+	}
+	writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such project"})
+	return nil
+}
+
+// handlePipelines is a project's pipelines, their recent runs, and the newest
+// run's tasks, from Airflow.
+func (s *server) handlePipelines(w http.ResponseWriter, r *http.Request) {
+	sess := s.signedIn(w, r)
+	if sess == nil {
+		return
+	}
+	if s.airflow == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "pipelines aren't set up (no AIRFLOW_URL)"})
+		return
+	}
+	v := s.project(w, r, sess)
+	if v == nil {
+		return
+	}
+	ps, err := s.airflow.Of(r.Context(), v.Name, 12)
+	if err != nil {
+		s.log.Error("pipelines", "project", v.Name, "error", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"pipelines": ps, "canRun": v.Role == project.Editor || s.isAdmin(sess.User)})
+}
+
+// handleStartRun starts a run of one of the project's pipelines, for its
+// editors (and administrators). The run itself goes as the pipelines'
+// service account, whoever starts it.
+func (s *server) handleStartRun(w http.ResponseWriter, r *http.Request) {
+	sess := s.signedIn(w, r)
+	if sess == nil {
+		return
+	}
+	if r.Header.Get("X-Platform-Request") != "1" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "missing X-Platform-Request"})
+		return
+	}
+	if s.airflow == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "pipelines aren't set up (no AIRFLOW_URL)"})
+		return
+	}
+	v := s.project(w, r, sess)
+	if v == nil {
+		return
+	}
+	if v.Role != project.Editor && !s.isAdmin(sess.User) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "only the project's editors run its pipelines"})
+		return
+	}
+	run, err := s.airflow.Start(r.Context(), v.Name, r.PathValue("pipeline"), sess.User.Username)
+	if err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": err.Error()})
+		return
+	}
+	s.log.Info("pipeline run started", "project", v.Name, "pipeline", r.PathValue("pipeline"), "run", run, "by", sess.User.Username)
+	writeJSON(w, http.StatusOK, map[string]string{"run": run})
+}

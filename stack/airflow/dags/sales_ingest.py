@@ -26,7 +26,7 @@ SUMMARY_COLUMNS = {"region": ["region"], "orders": ["id"], "amount": ["amount"]}
 
 
 @dag(schedule=None, start_date=pendulum.datetime(2026, 9, 1, tz="UTC"), catchup=False,
-     tags=["lakehouse"], doc_md=__doc__)
+     tags=["lakehouse", "project:sales"], doc_md=__doc__)  # project:<name>: the platform shows it in that project
 def sales_ingest():
 
     @task

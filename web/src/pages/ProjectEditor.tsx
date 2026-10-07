@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { getProject, MASK_TYPES, Member, Project, putProject, Spec } from "../api";
-import { grants } from "./ProjectDetail";
+import { grants } from "../lib";
 
 const blank = (): Project => ({
   apiVersion: "platform.storscale.io/v1alpha1",
@@ -14,7 +14,7 @@ const list = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 
 // ProjectEditor makes or changes a project, as a form or as its JSON.
 export default function ProjectEditor() {
-  const { name } = useParams();
+  const { project: name } = useParams();
   const navigate = useNavigate();
   const [p, setP] = useState<Project>();
   const [json, setJson] = useState<string>();
@@ -38,7 +38,7 @@ export default function ProjectEditor() {
     try {
       const body = json !== undefined ? (JSON.parse(json) as Project) : p;
       await putProject(body);
-      navigate(`/projects/${body.metadata.name}`);
+      navigate(`/p/${body.metadata.name}`);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -47,9 +47,9 @@ export default function ProjectEditor() {
   };
 
   return (
-    <div className="page editor">
+    <div className="page">
       <div className="page-head">
-        <h1>{name ? `Edit ${name}` : "New project"}</h1>
+        <h1>{name ? "Edit project" : "New project"}</h1>
         <div className="segmented">
           <button className={json === undefined ? "selected" : ""} onClick={() => setJson(undefined)} disabled={json !== undefined && !validJSON(json)}>Form</button>
           <button className={json !== undefined ? "selected" : ""} onClick={() => setJson(JSON.stringify(p, null, 2))}>JSON</button>
@@ -58,9 +58,9 @@ export default function ProjectEditor() {
       {error && <div className="banner error" data-testid="editor-error">{error}</div>}
 
       {json !== undefined ? (
-        <textarea rows={28} value={json} onChange={(e) => { setJson(e.target.value); if (validJSON(e.target.value)) setP(JSON.parse(e.target.value)); }} spellCheck={false} data-testid="project-json" />
+        <textarea className="yaml" rows={28} value={json} onChange={(e) => { setJson(e.target.value); if (validJSON(e.target.value)) setP(JSON.parse(e.target.value)); }} spellCheck={false} data-testid="project-json" />
       ) : (
-        <div className="form">
+        <div className="form card">
           <label>Name
             <input value={p.metadata.name} disabled={!!name} placeholder="sales" data-testid="project-name"
               onChange={(e) => setP({ ...p, metadata: { name: e.target.value.toLowerCase() } })} />
@@ -70,7 +70,7 @@ export default function ProjectEditor() {
             <input value={spec.description ?? ""} onChange={(e) => set({ description: e.target.value })} />
           </label>
 
-          <h2>Members</h2>
+          <h2 style={{ marginTop: 8 }}>Members</h2>
           {spec.members.map((m, i) => (
             <div className="row" key={i}>
               <select value={m.user !== undefined ? "user" : "group"} onChange={(e) =>
@@ -84,13 +84,13 @@ export default function ProjectEditor() {
                 <option value="editor">editor</option>
                 <option value="reader">reader</option>
               </select>
-              <button className="link" onClick={() => set({ members: spec.members.filter((_, j) => j !== i) })}>Remove</button>
+              <button className="linkish" onClick={() => set({ members: spec.members.filter((_, j) => j !== i) })}>Remove</button>
             </div>
           ))}
-          <button onClick={() => set({ members: [...spec.members, { group: "", role: "reader" }] })}>Add a member</button>
+          <button className="btn" onClick={() => set({ members: [...spec.members, { group: "", role: "reader" }] })}>Add a member</button>
 
-          <h2>
-            <label className="check"><input type="checkbox" checked={!!spec.tables} onChange={(e) => set({ tables: e.target.checked ? {} : undefined })} /> Tables</label>
+          <h2 style={{ marginTop: 20 }}>
+            <label className="row" style={{ flexDirection: "row", gap: 8 }}><input type="checkbox" checked={!!spec.tables} onChange={(e) => set({ tables: e.target.checked ? {} : undefined })} /> Tables</label>
           </h2>
           {spec.tables && (
             <>
@@ -108,10 +108,10 @@ export default function ProjectEditor() {
                 <div className="row" key={i}>
                   <input value={f.table} placeholder="table" onChange={(e) => setReaders({ ...readers, rowFilters: readers.rowFilters!.map((x, j) => (j === i ? { ...x, table: e.target.value } : x)) })} />
                   <input className="grow" value={f.filter} placeholder="region = 'EU'" onChange={(e) => setReaders({ ...readers, rowFilters: readers.rowFilters!.map((x, j) => (j === i ? { ...x, filter: e.target.value } : x)) })} />
-                  <button className="link" onClick={() => setReaders({ ...readers, rowFilters: readers.rowFilters!.filter((_, j) => j !== i) })}>Remove</button>
+                  <button className="linkish" onClick={() => setReaders({ ...readers, rowFilters: readers.rowFilters!.filter((_, j) => j !== i) })}>Remove</button>
                 </div>
               ))}
-              <button onClick={() => setReaders({ ...readers, rowFilters: [...(readers.rowFilters ?? []), { table: "", filter: "" }] })}>Add a row filter</button>
+              <button className="btn" onClick={() => setReaders({ ...readers, rowFilters: [...(readers.rowFilters ?? []), { table: "", filter: "" }] })}>Add a row filter</button>
               <h3>Column masks for readers</h3>
               {(readers.masks ?? []).map((m, i) => (
                 <div className="row" key={i}>
@@ -120,15 +120,15 @@ export default function ProjectEditor() {
                   <select value={m.type} onChange={(e) => setReaders({ ...readers, masks: readers.masks!.map((x, j) => (j === i ? { ...x, type: e.target.value } : x)) })}>
                     {MASK_TYPES.map((t) => <option key={t}>{t}</option>)}
                   </select>
-                  <button className="link" onClick={() => setReaders({ ...readers, masks: readers.masks!.filter((_, j) => j !== i) })}>Remove</button>
+                  <button className="linkish" onClick={() => setReaders({ ...readers, masks: readers.masks!.filter((_, j) => j !== i) })}>Remove</button>
                 </div>
               ))}
-              <button onClick={() => setReaders({ ...readers, masks: [...(readers.masks ?? []), { table: "", column: "", type: "MASK" }] })}>Add a mask</button>
+              <button className="btn" onClick={() => setReaders({ ...readers, masks: [...(readers.masks ?? []), { table: "", column: "", type: "MASK" }] })}>Add a mask</button>
             </>
           )}
 
-          <h2>
-            <label className="check"><input type="checkbox" checked={!!spec.files} onChange={(e) => set({ files: e.target.checked ? {} : undefined })} /> Files</label>
+          <h2 style={{ marginTop: 20 }}>
+            <label className="row" style={{ flexDirection: "row", gap: 8 }}><input type="checkbox" checked={!!spec.files} onChange={(e) => set({ files: e.target.checked ? {} : undefined })} /> Files</label>
           </h2>
           {spec.files && (
             <label>Bucket
@@ -136,8 +136,8 @@ export default function ProjectEditor() {
             </label>
           )}
 
-          <h2>
-            <label className="check"><input type="checkbox" checked={!!spec.pipelines} onChange={(e) => set({ pipelines: e.target.checked ? { serviceAccount: "" } : undefined })} /> Pipelines</label>
+          <h2 style={{ marginTop: 20 }}>
+            <label className="row" style={{ flexDirection: "row", gap: 8 }}><input type="checkbox" checked={!!spec.pipelines} onChange={(e) => set({ pipelines: e.target.checked ? { serviceAccount: "" } : undefined })} /> Pipelines</label>
           </h2>
           {spec.pipelines && (
             <label>Keycloak client whose service account runs them
@@ -149,8 +149,8 @@ export default function ProjectEditor() {
 
       {p.metadata.name && (
         <>
-          <h2>What each role will get</h2>
-          <div className="grant-grid">
+          <h2 style={{ margin: "24px 0 12px" }}>What each role will get</h2>
+          <div className="grid cards">
             {grants(p.metadata.name, p.spec).map((g) => (
               <div key={g.role} className="card"><h3>{g.role} <span className="pill">{g.group}</span></h3><ul>{g.items.map((i) => <li key={i}>{i}</li>)}</ul></div>
             ))}
@@ -158,8 +158,8 @@ export default function ProjectEditor() {
         </>
       )}
       <div className="form-actions">
-        <button onClick={() => navigate(-1)}>Cancel</button>
-        <button className="primary" onClick={save} disabled={saving} data-testid="save-project">{saving ? "Saving…" : "Save"}</button>
+        <button className="btn" onClick={() => navigate(-1)}>Cancel</button>
+        <button className="btn primary" onClick={save} disabled={saving} data-testid="save-project">{saving ? "Saving…" : "Save"}</button>
       </div>
     </div>
   );

@@ -5,6 +5,30 @@ All notable changes to StorScale Platform are recorded here, in the [Keep a Chan
 ## [Unreleased]
 
 ### Added
+- **A redesigned web app: the project is the frame.** The platform's look was a sidebar of tools. It's now one product, built around the project you're working in.
+  - **A top bar on every page:** a project switcher, search over the project's tables, columns, metrics and pipelines (press `/`), the tools, and your account. There's one design system: IBM Plex Sans and Mono, one accent colour, and colour only for meaning (green passing, red failing, amber "limited for you").
+  - **Home:** your projects with their tables, metrics, checks and last run; what needs attention (failing checks, failed runs); and recent pipeline runs.
+  - **Each project's pages, at `/p/<name>`:**
+    - **Overview:** tiles, how data flows, failing checks, what each role can do (yours marked), its people, and where it's applied.
+    - **Data:** each table's columns and types, with what a reader doesn't see. It also has a preview of the rows *as you*, its lineage, and its checks.
+    - **Metrics:** the semantic layer, restyled. Pick metrics and dimensions as chips; answers come as bars and a table.
+    - **SQL:** a query editor with the project's schema beside it. It runs in Trino as you, in the project's namespace.
+    - **Pipelines:** the project's Airflow DAGs (tagged `project:<name>`), their runs and the newest run's tasks. Editors can start a run.
+    - **Notebooks** and **Dashboards** show JupyterLab and Superset in the frame.
+    - **Access:** members, the roles, and the readers' limits.
+  - **Administration (`/admin`)** gathers projects, the access matrix, monitoring (Grafana) and the administrators' tools.
+  - Old addresses (`/projects/<name>`, `/projects/<name>/flow`, `/access`) redirect to their new pages.
+- **API for the new pages:**
+  - `POST /api/projects/<name>/sql` runs one statement as the caller. platformd hands it to `semanticd`, which runs it in Trino with the caller's token, so Ranger applies.
+  - `GET /api/projects/<name>/pipelines` lists the project's pipelines and runs, and `POST /api/projects/<name>/pipelines/<id>/runs` starts a run, for editors only. Both go through Airflow's API as a platform account, `storscale-platform`, created by `airflow-init`.
+  - The flow now carries each column's type and each table's description.
+- **The stack is lighter, so it fits a 10 GB Docker VM with the browser suite running:**
+  - Airflow's LocalExecutor keeps 4 workers instead of 32, which halves the scheduler's memory.
+  - Ranger's admin server runs with a 512 MB heap instead of the 1 GB its start script pins.
+  - Trino gets 1.5 GB instead of 2 GB, a heap of about 1.2 GB, and at most 512 MB for a query. The kernel had been stopping it when the VM ran short.
+  - The browser suite waits for the pipeline run it starts to finish, so it never overlaps another suite's run.
+- **Buckets 1.12.0**, up from 1.7.0, which frees what it allocates.
+- **The catalog keeps working when the disk is nearly full.** OpenSearch made the catalog's indices read-only once the disk was 95% full, and then the pipeline's lineage reports hung until they timed out. That's the default for a cluster; on one node on a laptop, the disk thresholds are now off.
 - The plan: a semantic layer that agents can use (phase 4). MetricFlow holds the definitions, there's an editor in the shell, and an MCP server lets agents query as the person or service account asking, under Ranger's rules.
 - The plan: [docs/plan.md](docs/plan.md). It covers the architecture, the `Project` object, a map of Dataiku's features onto open-source tools, the phases and the decisions.
 - **Phase 4:** a semantic layer that agents can use.

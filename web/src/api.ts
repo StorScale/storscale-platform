@@ -12,7 +12,7 @@ export type Tool = {
 };
 
 export type Session =
-  | { state: "signed-in"; user: User; tools: Tool[]; admin: boolean; projects: boolean; flow: boolean; semantic: boolean }
+  | { state: "signed-in"; user: User; tools: Tool[]; admin: boolean; projects: boolean; flow: boolean; semantic: boolean; pipelines: boolean }
   | { state: "refused"; user: User; error: string };
 
 // session is null when nobody is signed in.
@@ -22,7 +22,7 @@ export async function session(): Promise<Session | null> {
   const body = await res.json();
   if (res.status === 403) return { state: "refused", user: body.user, error: body.error };
   if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
-  return { state: "signed-in", user: body.user, tools: body.tools, admin: !!body.admin, projects: !!body.projects, flow: !!body.flow, semantic: !!body.semantic };
+  return { state: "signed-in", user: body.user, tools: body.tools, admin: !!body.admin, projects: !!body.projects, flow: !!body.flow, semantic: !!body.semantic, pipelines: !!body.pipelines };
 }
 
 export function signIn() {
@@ -97,7 +97,8 @@ export const getAccess = () => api<{ projects: string[]; people: AccessPerson[] 
 // --- A project's flow (from the catalog) --------------------------------------------
 
 export type FlowCheck = { name: string; status: string; result: string; when?: number };
-export type FlowTable = { name: string; fqn: string; columns: string[]; checks: FlowCheck[]; external?: boolean };
+export type FlowColumn = { name: string; type: string };
+export type FlowTable = { name: string; fqn: string; description?: string; columns: FlowColumn[]; checks: FlowCheck[]; external?: boolean };
 export type FlowEdge = { from: string; to: string; pipeline?: string; columns: { from: string[]; to: string }[] };
 export type Flow = { tables: FlowTable[]; edges: FlowEdge[] };
 export const getFlow = (name: string) => api<Flow>("GET", `/api/projects/${encodeURIComponent(name)}/flow`);
@@ -111,3 +112,39 @@ export type MetricAnswer = { project: string; sql: string; columns?: string[]; r
 export const getSemantic = (name: string) => api<SemanticModel>("GET", `/api/projects/${encodeURIComponent(name)}/semantic`);
 export const putSemantic = (name: string, yaml: string) => api<SemanticModel>("PUT", `/api/projects/${encodeURIComponent(name)}/semantic`, { yaml });
 export const queryMetrics = (name: string, q: MetricQuery) => api<MetricAnswer>("POST", `/api/projects/${encodeURIComponent(name)}/semantic/query`, q);
+
+// --- SQL, as the person asking (semanticd runs it in Trino with their token) --------
+
+export type SQLAnswer = { columns: string[]; rows: unknown[][]; seconds?: number };
+export const runSQL = (name: string, sql: string, limit?: number) =>
+  api<SQLAnswer>("POST", `/api/projects/${encodeURIComponent(name)}/sql`, { sql, limit });
+
+// --- A project's pipelines (Airflow DAGs tagged project:<name>) ---------------------
+
+export type PipelineRun = { id: string; state: string; started: string; ended: string; requestedBy?: string; type: string };
+export type PipelineTask = { id: string; state: string; started: string; ended: string };
+export type Pipeline = { id: string; description: string; paused: boolean; runs: PipelineRun[]; tasks: PipelineTask[] };
+export const getPipelines = (name: string) =>
+  api<{ pipelines: Pipeline[]; canRun: boolean }>("GET", `/api/projects/${encodeURIComponent(name)}/pipelines`);
+export const startRun = (name: string, pipeline: string) =>
+  api<{ run: string }>("POST", `/api/projects/${encodeURIComponent(name)}/pipelines/${encodeURIComponent(pipeline)}/runs`);
+
+// Airflow's times: Go's zero time means "not yet".
+export function when(t?: string): Date | undefined {
+  if (!t || t.startsWith("0001-")) return undefined;
+  const d = new Date(t);
+  return isNaN(d.getTime()) ? undefined : d;
+}
+export function ago(d?: Date): string {
+  if (!d) return "";
+  const s = Math.round((Date.now() - d.getTime()) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+  return d.toLocaleDateString();
+}
+export function took(a?: Date, b?: Date): string {
+  if (!a || !b) return "";
+  const s = Math.max(0, Math.round((b.getTime() - a.getTime()) / 1000));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+}

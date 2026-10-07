@@ -26,7 +26,7 @@ func fakeCatalog(t *testing.T) *httptest.Server {
 		}
 		reply(w, map[string]any{"data": []any{
 			map[string]any{"id": "t1", "name": "orders", "fullyQualifiedName": "trino.iceberg.sales.orders",
-				"columns": []any{map[string]any{"name": "id"}, map[string]any{"name": "region"}}},
+				"columns": []any{map[string]any{"name": "id", "dataType": "BIGINT"}, map[string]any{"name": "region", "dataType": "VARCHAR", "dataTypeDisplay": "varchar"}}},
 			map[string]any{"id": "t2", "name": "orders_by_region", "fullyQualifiedName": "trino.iceberg.sales.orders_by_region",
 				"columns": []any{map[string]any{"name": "region"}, map[string]any{"name": "orders"}}},
 			map[string]any{"id": "t3", "name": "gone", "fullyQualifiedName": "trino.iceberg.sales.gone", "deleted": true},
@@ -85,6 +85,9 @@ func TestFlow(t *testing.T) {
 	}
 	if orders == nil || len(orders.Checks) != 2 || orders.Checks[0].Status != "Failed" || orders.Checks[1].Status != "" {
 		t.Errorf("orders' checks: %+v", orders)
+	}
+	if orders != nil && (len(orders.Columns) != 2 || orders.Columns[0] != (Column{"id", "bigint"}) || orders.Columns[1].Type != "varchar") {
+		t.Errorf("orders' columns: %+v, want names and lowercase types", orders.Columns)
 	}
 	if external == nil || !external.External {
 		t.Errorf("a table upstream in another project should be in the flow, marked external: %+v", external)

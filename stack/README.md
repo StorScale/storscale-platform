@@ -47,7 +47,7 @@ To use another domain, set `STORSCALE_DOMAIN`, and make its names resolve to thi
 
 ## Projects
 
-A project ([projects/sales.json](projects/sales.json) is one) is a team's tables, files and pipelines, and who may use them. Administrators (engineers) make, change and delete projects in the platform's Projects pages, or through `PUT` and `DELETE` on `/api/projects/<name>`. platformd keeps them in the `storscale-platform` bucket.
+A project ([projects/sales.json](projects/sales.json) is one) is a team's tables, files and pipelines, and who may use them. Administrators (engineers) make, change and delete projects in the platform's Administration pages, or through `PUT` and `DELETE` on `/api/projects/<name>`. platformd keeps them in the `storscale-platform` bucket.
 
 `platform-operator` applies each project and writes back its status. It runs again when the project changes, and every minute anyway, because a Keycloak group's members can change without the project changing. For project `sales`:
 
@@ -81,7 +81,7 @@ Every 20 seconds, `catalog-sync` does three things:
 
 Two services use that token:
 - **Airflow's pipelines** report their lineage, column by column, as OpenLineage events to `/api/v1/openlineage/lineage`. The sales pipeline does this for `orders_by_region` (`airflow/dags/lakehouse_identity.py`'s `report_lineage`).
-- **platformd** reads a project's tables, lineage and checks for its Flow view (`/api/projects/<name>/flow`).
+- **platformd** reads a project's tables, lineage and checks for its Overview and Data pages (`/api/projects/<name>/flow`).
 
 Each pipeline registers itself in the catalog before it reports, because OpenMetadata 2.0.4 fails to create the pipeline on its own.
 
@@ -92,7 +92,7 @@ Each pipeline registers itself in the catalog before it reports, because OpenMet
 
 Each project can have a semantic model, kept in the project store as `semantic/<project>.yaml`; [projects/sales.semantic.yaml](projects/sales.semantic.yaml) is one. It's written in MetricFlow's YAML: semantic models over the project's tables, and the metrics made from them.
 
-- **Editing:** a project's editors change the model in its Semantic layer page. `semanticd` compiles it with MetricFlow, without dbt, and refuses what doesn't compile, saying why.
+- **Editing:** a project's editors change the model in its Metrics page. `semanticd` compiles it with MetricFlow, without dbt, and refuses what doesn't compile, saying why.
 - **Querying:** people (in the platform) and agents (over MCP) ask for metrics by name. `semanticd` compiles each request to Trino SQL and runs it **as whoever asked**, with their own Keycloak token. Ranger's policies, row filters and masks therefore apply to an agent exactly as to the person it works for.
 - **Auditing:** each query starts with a comment naming the agent (the token's client) and the person, and Ranger's audit log keeps it.
 - **Agents' access:** agents connect to `http://storscale.localhost:8800/mcp`, an OAuth resource server whose metadata names Keycloak. They sign in through Keycloak's client `storscale-agent`, as the person using them. That client's tokens are for both the MCP server and Trino.

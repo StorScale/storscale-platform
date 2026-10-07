@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Tool } from "../api";
 
-// ToolFrames shows the active tool in a frame. The last few tools used stay
-// loaded, so switching between them keeps each where it was; older ones are
-// let go (each is a whole app), and load again when opened.
+// ToolFrames shows the active tool in a frame under the page's header. The
+// last few tools used stay loaded, so switching between them keeps each where
+// it was; older ones are let go (each is a whole app), and load again when opened.
 const KEEP = 2;
 export default function ToolFrames({ tools, active }: { tools: Tool[]; active?: string }) {
   const [opened, setOpened] = useState<string[]>([]);
@@ -13,15 +13,15 @@ export default function ToolFrames({ tools, active }: { tools: Tool[]; active?: 
   }, [active, opened]);
 
   const tool = tools.find((t) => t.id === active);
-  if (active && !tool) return <p>No tool called {active}.</p>;
   return (
-    <>
+    <div className="frames" hidden={!active}>
+      {active && !tool && <div className="page"><div className="empty">There's no tool called {active}.</div></div>}
       {tool && (
         <div className="tool-bar">
-          <strong>{tool.name}</strong>
-          <span className="muted">{tool.description}</span>
+          <strong style={{ color: "var(--ink)" }}>{tool.name}</strong>
+          <span>{tool.description}</span>
           <span className="grow" />
-          <button className="link" onClick={() => setReloads((r) => ({ ...r, [tool.id]: (r[tool.id] ?? 0) + 1 }))}>Reload</button>
+          <button className="linkish" onClick={() => setReloads((r) => ({ ...r, [tool.id]: (r[tool.id] ?? 0) + 1 }))}>Reload</button>
           <a href={tool.url} target="_blank" rel="noreferrer">Open in a new tab ↗</a>
         </div>
       )}
@@ -41,6 +41,6 @@ export default function ToolFrames({ tools, active }: { tools: Tool[]; active?: 
           />
         );
       })}
-    </>
+    </div>
   );
 }

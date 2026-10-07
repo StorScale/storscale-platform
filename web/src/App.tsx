@@ -1,13 +1,17 @@
 import { useEffect, useState } from "react";
-import { NavLink, Route, Routes, useLocation } from "react-router-dom";
-import { session, Session, signIn, signOut, Tool, User } from "./api";
-import Access from "./pages/Access";
-import Flow from "./pages/Flow";
-import Semantic from "./pages/Semantic";
+import { Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
+import { session, Session, signIn, signOut, User } from "./api";
+import { ProjectFrame, TopBar } from "./components";
+import { PlatformContext, Spinner, usePlatform } from "./lib";
+import Admin, { AdminAccess, AdminMonitoring, AdminProjects } from "./pages/Admin";
+import Data from "./pages/Data";
 import Home from "./pages/Home";
-import ProjectDetail from "./pages/ProjectDetail";
+import Metrics from "./pages/Metrics";
+import Overview from "./pages/Overview";
+import Pipelines from "./pages/Pipelines";
+import ProjectAccess from "./pages/ProjectAccess";
 import ProjectEditor from "./pages/ProjectEditor";
-import Projects from "./pages/Projects";
+import SQL from "./pages/SQL";
 import ToolFrames from "./pages/ToolFrames";
 
 export default function App() {
@@ -19,78 +23,84 @@ export default function App() {
       .catch((e) => setError(String(e)));
   }, []);
 
-  if (error) return <Centered><p className="bad">The platform isn't answering: {error}</p></Centered>;
-  if (!s) return <Centered><div className="spinner" /></Centered>;
+  if (error) return <div className="center"><div className="banner error">The platform isn't answering: {error}</div></div>;
+  if (!s) return <div className="center"><Spinner /></div>;
   if (s.state === "refused") return <Refused user={s.user} error={s.error} />;
-  return <Shell user={s.user} tools={s.tools} admin={s.admin} projects={s.projects} />;
+  const { state: _, ...platform } = s;
+  return (
+    <PlatformContext.Provider value={platform}>
+      <Shell />
+    </PlatformContext.Provider>
+  );
 }
 
-function Shell({ user, tools, admin, projects }: { user: User; tools: Tool[]; admin: boolean; projects: boolean }) {
+// The tool shown in a frame at this address, if any: a project's notebooks and
+// dashboards, monitoring in Administration, or any tool at /tools/:id.
+function frameAt(path: string): string | undefined {
+  return path.match(/^\/tools\/([^/]+)/)?.[1]
+    ?? path.match(/^\/p\/[^/]+\/(notebooks|dashboards)\/?$/)?.[1]
+    ?? (/^\/admin\/monitoring\/?$/.test(path) ? "monitoring" : undefined);
+}
+
+function Shell() {
+  const { tools, admin } = usePlatform();
   const location = useLocation();
-  const work = tools.filter((t) => t.section === "work");
-  const adminTools = tools.filter((t) => t.section === "admin");
-  const toolId = location.pathname.match(/^\/tools\/([^/]+)/)?.[1];
+  const frame = frameAt(location.pathname);
   return (
-    <div className="shell">
-      <nav className="sidebar" aria-label="Platform">
-        <div className="brand">
-          <img src="/favicon.svg" alt="" /> StorScale <span className="brand-sub">Platform</span>
-        </div>
-        <NavLink to="/" end>Home</NavLink>
-        {projects && <NavLink to="/projects" data-testid="nav-projects">Projects</NavLink>}
-        <div className="nav-group">Work</div>
-        {work.map((t) =>
-          t.embedUrl ? (
-            <NavLink key={t.id} to={`/tools/${t.id}`} data-testid={`nav-${t.id}`}>{t.name}</NavLink>
-          ) : (
-            <a key={t.id} href={t.url} target="_blank" rel="noreferrer" data-testid={`nav-${t.id}`}>{t.name} <span aria-hidden>↗</span></a>
-          ),
-        )}
-        {(adminTools.length > 0 || (admin && projects)) && <div className="nav-group">Administration</div>}
-        {admin && projects && <NavLink to="/access" data-testid="nav-access">Access</NavLink>}
-        {adminTools.map((t) => (
-          <a key={t.id} href={t.url} target="_blank" rel="noreferrer" data-testid={`nav-${t.id}`}>
-            {t.name} <span aria-hidden>↗</span>
-          </a>
-        ))}
-        <div className="sidebar-foot">
-          <div className="whoami" data-testid="whoami">{user.name || user.username}</div>
-          <div className="groups">{user.groups.join(", ")}</div>
-          <button className="link" onClick={signOut} data-testid="sign-out">Sign out</button>
-        </div>
-      </nav>
-      <main className={toolId ? "content framed" : "content"}>
-        <Routes>
-          <Route path="/" element={<Home user={user} tools={work} projects={projects} />} />
-          <Route path="/tools/:id" element={null} />
-          <Route path="/projects" element={<Projects />} />
-          <Route path="/projects/new" element={<ProjectEditor />} />
-          <Route path="/projects/:name" element={<ProjectDetail admin={admin} />} />
-          <Route path="/projects/:name/edit" element={<ProjectEditor />} />
-          <Route path="/projects/:name/flow" element={<Flow />} />
-          <Route path="/projects/:name/semantic" element={<Semantic />} />
-          <Route path="/access" element={<Access />} />
-          <Route path="*" element={<p>Page not found.</p>} />
-        </Routes>
-        <ToolFrames tools={work} active={toolId} />
-      </main>
+    <div className={frame ? "app fill" : "app"}>
+      <TopBar />
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/p/:project" element={<ProjectFrame />}>
+          <Route index element={<Overview />} />
+          <Route path="data" element={<Data />} />
+          <Route path="metrics" element={<Metrics />} />
+          <Route path="sql" element={<SQL />} />
+          <Route path="pipelines" element={<Pipelines />} />
+          <Route path="notebooks" element={null} />
+          <Route path="dashboards" element={null} />
+          <Route path="access" element={<ProjectAccess />} />
+          <Route path="edit" element={admin ? <ProjectEditor /> : <Navigate to=".." replace />} />
+        </Route>
+        <Route path="/admin" element={admin ? <Admin /> : <NotFound />}>
+          <Route index element={<Navigate to="projects" replace />} />
+          <Route path="projects" element={<AdminProjects />} />
+          <Route path="projects/new" element={<ProjectEditor />} />
+          <Route path="access" element={<AdminAccess />} />
+          <Route path="monitoring" element={<AdminMonitoring />} />
+        </Route>
+        <Route path="/tools/:id" element={null} />
+        {/* Addresses from before the redesign. */}
+        <Route path="/projects" element={<Navigate to={admin ? "/admin/projects" : "/"} replace />} />
+        <Route path="/projects/new" element={<Navigate to="/admin/projects/new" replace />} />
+        <Route path="/projects/:name/*" element={<OldProject />} />
+        <Route path="/access" element={<Navigate to="/admin/access" replace />} />
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+      <ToolFrames tools={tools.filter((t) => t.embedUrl)} active={frame} />
     </div>
   );
 }
 
+function OldProject() {
+  const { name = "", "*": rest = "" } = useParams();
+  const to = { flow: "data", semantic: "metrics", edit: "edit" }[rest.split("/")[0]] ?? "";
+  return <Navigate to={`/p/${name}${to ? `/${to}` : ""}`} replace />;
+}
+
+function NotFound() {
+  return <div className="page"><div className="empty">There's no page here. <a href="/">Go home</a>.</div></div>;
+}
+
 function Refused({ user, error }: { user: User; error: string }) {
   return (
-    <Centered>
-      <div className="card refused" data-testid="refused">
+    <div className="center">
+      <div className="card" style={{ maxWidth: 480 }} data-testid="refused">
         <h1>No access</h1>
         <p>Signed in as <strong>{user.username}</strong>. {error}</p>
         <p className="muted">Ask an administrator to add you to a group in Keycloak, then sign in again.</p>
-        <button onClick={signOut}>Sign out</button>
+        <button className="btn" onClick={signOut}>Sign out</button>
       </div>
-    </Centered>
+    </div>
   );
-}
-
-function Centered({ children }: { children: React.ReactNode }) {
-  return <div className="center">{children}</div>;
 }

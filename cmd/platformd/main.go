@@ -21,6 +21,8 @@
 //	                      the catalog (OpenMetadata), and the token catalog-sync shares; without
 //	                      them, there's no Flow view
 //	SEMANTIC_URL          the semantic layer (semanticd), called as the signed-in person
+//	AIRFLOW_URL, AIRFLOW_USER, AIRFLOW_PASSWORD
+//	                      Airflow, for the projects' pipelines, as the platform's Airflow account
 //
 // `platformd healthcheck` checks a running platformd, for container health checks.
 package main
@@ -93,6 +95,7 @@ type config struct {
 	StoreURL, StoreBucket, StoreAccessKey, StoreSecretKey string
 	CatalogURL, CatalogTokenFile                          string
 	SemanticURL                                           string
+	AirflowURL, AirflowUser, AirflowPassword              string
 }
 
 func (c config) issuer() string { return c.KeycloakURL + "/realms/" + c.Realm }
@@ -129,6 +132,7 @@ func configFromEnv(get func(string) string) (config, error) {
 		StoreAccessKey: get("STORE_ACCESS_KEY"), StoreSecretKey: get("STORE_SECRET_KEY"),
 		CatalogURL: get("CATALOG_URL"), CatalogTokenFile: or("CATALOG_TOKEN_FILE", "/catalog/token"),
 		SemanticURL: strings.TrimRight(get("SEMANTIC_URL"), "/"),
+		AirflowURL:  get("AIRFLOW_URL"), AirflowUser: get("AIRFLOW_USER"), AirflowPassword: get("AIRFLOW_PASSWORD"),
 	}
 	c.KeycloakDirectURL = strings.TrimRight(or("KEYCLOAK_DIRECT_URL", c.KeycloakURL), "/")
 	var missing []string

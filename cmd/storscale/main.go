@@ -24,7 +24,8 @@ Usage:
   storscale up [--port N]       start the platform (builds its images the first time)
   storscale status              the platform's services
   storscale urls                where each tool is
-  storscale test [suite ...]    the end-to-end checks: shell, lakehouse, superset, airflow, jupyterhub, monitoring
+  storscale test [suite ...]    the end-to-end checks (all of them, or some of: shell, lakehouse,
+                                superset, airflow, jupyterhub, catalog, semantic, projects, monitoring)
   storscale logs [service ...]  follow the logs
   storscale down [--volumes]    stop it; --volumes also deletes its data
   storscale version

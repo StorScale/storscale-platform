@@ -3,8 +3,11 @@
   1. alice signs in to the platform once, with Keycloak's form;
   2. then opens notebooks, SQL, dashboards, pipelines and monitoring in the
      platform's frame, each signed in as alice, without another sign-in;
-  3. the projects pages: alice sees the sales project, as a reader, and can't
-     make projects; bob, an administrator, sees its members and the Access page;
+  3. the sales project in the platform's own pages: alice, a reader, sees its
+     tables (a preview and her SQL showing only what Ranger lets her see), asks
+     for a metric, sees its pipelines and finds a column with search, but can't
+     change the project; bob, an administrator, sees its members, can change its
+     metrics, starts a pipeline run, and sees who has access;
   4. carol (in neither group) signs in, and the platform refuses her;
   5. signing out of the platform ends the Keycloak session too.
 
@@ -90,12 +93,14 @@ def sign_in(page, user):
 def main():
     forward(PORT, "gateway")
     with sync_playwright() as p:
-        for engine in os.environ.get("SHELL_BROWSERS", "chromium webkit").split():
+        engines = os.environ.get("SHELL_BROWSERS", "chromium webkit").split()
+        for engine in engines:
             print(f"--- in {engine} ({'Safari' if engine == 'webkit' else 'Chrome, Edge'})", flush=True)
             # Switching between tools in one page holds several whole apps at
             # once: CI has the memory for it (SHELL_SWITCH=1); a laptop's Docker,
             # running the platform too, may not.
-            run(getattr(p, engine).launch(), switch=os.environ.get("SHELL_SWITCH") == "1" and engine != "webkit")
+            run(getattr(p, engine).launch(), switch=os.environ.get("SHELL_SWITCH") == "1" and engine != "webkit",
+                start_run=engine == engines[0])  # one pipeline run is enough
 
     print()
     if failures:
@@ -103,7 +108,7 @@ def main():
     print("all checks passed")
 
 
-def run(browser, switch=True):
+def run(browser, switch=True, start_run=True):
     """The checks, in one browser. switch: open the tools one after another in
     the same page, as a person switching between them would; otherwise each in
     a page of its own (lighter: on a machine short of memory, a headless browser
@@ -119,13 +124,17 @@ def run(browser, switch=True):
     page.wait_for_selector("[data-testid=greeting]", timeout=60_000)
     check("alice signs in to the platform with Keycloak", "Alice" in page.inner_text("[data-testid=greeting]"),
           page.inner_text("[data-testid=greeting]"))
-    names = [a.inner_text() for a in page.query_selector_all(".sidebar a")]
-    check("... and the platform lists her tools", all(n in names for n in ("Notebooks", "SQL", "Dashboards", "Pipelines", "Monitoring"))
-          and "Access policies ↗" not in names, ", ".join(names))
+    names = [(a.text_content() or "").strip() for a in page.query_selector_all(".topbar [data-testid^=nav-]")]
+    check("... and the Tools menu lists her tools", all(any(n.startswith(t) for n in names) for t in ("Notebooks", "SQL", "Dashboards", "Pipelines", "Monitoring"))
+          and not any(n.startswith("Access policies") for n in names), ", ".join(names))
+    page.wait_for_selector("[data-testid=project-sales]", timeout=60_000)
+    card = page.inner_text("[data-testid=project-sales]")
+    check("... and Home shows her project, sales, where she's a reader", "Reader" in card, " ".join(card.split())[:100])
 
     # 2. Each tool, in the platform's frame, without another sign-in.
     for tool, where in TOOLS.items():
         if switch:
+            press(page, "[data-testid=tools-menu]")
             press(page, f"[data-testid=nav-{tool}]")
         else:
             page.goto(f"{PLATFORM}/tools/{tool}")
@@ -142,7 +151,7 @@ def run(browser, switch=True):
         url = frame.url if frame and not frame.is_detached() else "no frame"
         shown = frame is not None and re.search(where, url) is not None
         if shown:
-            frame.wait_for_load_state("load")
+            frame.wait_for_load_state("load", timeout=120_000)
         on_keycloak = frame is not None and frame.url.startswith(AUTH)
         check(f"{tool} opens in the platform, signed in as alice", shown and not on_keycloak, url)
     check("one sign-in for all of them", len(sign_ins) == 1, f"{len(sign_ins)} Keycloak sign-in(s)")
@@ -150,48 +159,103 @@ def run(browser, switch=True):
     check("the catalog opens in a tab of its own, through the platform's launcher",
           catalog.endswith("/_storscale/launch.html") and page.get_attribute("[data-testid=nav-catalog]", "target") == "_blank", catalog)
 
-    # 3. Projects, as alice.
-    press(page, "[data-testid=nav-projects]")
-    page.wait_for_selector("[data-testid=project-sales]", timeout=30_000)
-    row = page.inner_text("[data-testid=project-sales]")
-    check("alice sees the sales project, as a reader", "reader" in row, " ".join(row.split()))
-    check("... and can't make projects", page.query_selector("[data-testid=new-project]") is None
-          and page.query_selector("[data-testid=nav-access]") is None, "no New project button, no Access page")
-    page.goto(f"{PLATFORM}/projects/sales/flow")
+    # 3. The sales project, as alice (a reader), in the platform's own pages.
+    page.goto(f"{PLATFORM}/p/sales")
+    page.wait_for_selector("[data-testid=grants]", timeout=60_000)
+    tabs = [t.inner_text() for t in page.query_selector_all(".tabs a")]
+    check("alice opens sales: its tabs", all(t in tabs for t in ("Overview", "Data", "Metrics", "SQL", "Pipelines", "Access")), ", ".join(tabs))
+    check("... she's a reader there, with no administration", page.inner_text("[data-testid=role]") == "Reader"
+          and page.query_selector("[data-testid=edit-project]") is None and page.query_selector("[data-testid=nav-admin]") is None, "")
+    page.goto(f"{PLATFORM}/p/sales/data")
     page.wait_for_selector("[data-testid=table-orders]", timeout=120_000)
-    names = [e.get_attribute("data-testid")[6:] for e in page.query_selector_all("[data-testid^=table-]")]
-    check("... and its Flow: the project's tables, from the catalog", {"orders", "orders_by_region", "payroll"} <= set(names), names)
+    names = [e.get_attribute("data-testid")[6:] for e in page.query_selector_all("[data-testid=tables] [data-testid^=table-]")]
+    check("... Data: the project's tables, from the catalog", {"orders", "orders_by_region", "payroll"} <= set(names), names)
+    press(page, "[data-testid=table-orders]")
+    page.wait_for_selector("[data-testid=columns]", timeout=30_000)
+    columns = page.inner_text("[data-testid=columns]")
+    limits = page.inner_text("[data-testid=limits]") if page.query_selector("[data-testid=limits]") else ""
+    check("... with column types, and what a reader doesn't see", "card_number" in columns and "varchar" in columns
+          and "last 4 only" in columns and "region = 'EU'" in limits, " ".join(limits.split())[:120])
+    press(page, "[data-testid=data-tab-preview]")
+    page.wait_for_selector("[data-testid=preview]", timeout=120_000)
+    rows = preview_rows(page, "preview")
+    check("... a preview of orders, as alice: EU rows only, card numbers masked",
+          rows and all(r.get("region") == "EU" for r in rows) and all(not r.get("card_number") or r["card_number"][:-4].strip("x*X") == "" for r in rows),
+          str(rows[:2]))
+    page.goto(f"{PLATFORM}/p/sales/sql")
+    page.wait_for_selector("[data-testid=sql]", timeout=60_000)
+    page.fill("[data-testid=sql]", "SELECT region, count(*) AS n FROM orders GROUP BY region")
+    press(page, "[data-testid=run-sql]")
+    page.wait_for_selector("[data-testid=sql-result]", timeout=120_000)
+    rows = preview_rows(page, "sql-result")
+    check("... SQL: her query runs as her (Ranger's row filter applies)", rows and {r["region"] for r in rows} == {"EU"}, str(rows))
+    page.goto(f"{PLATFORM}/p/sales/metrics")
+    press(page, "[data-testid=metric-revenue]")
+    press(page, "[data-testid=ask]")
+    page.wait_for_selector("[data-testid=answer]", timeout=120_000)
+    check("... Metrics: she asks for revenue, and gets an answer", "revenue" in page.inner_text("[data-testid=answer]"),
+          " ".join(page.inner_text("[data-testid=answer]").split())[:80])
+    check("... whose definitions she can read but not change", page.query_selector("[data-testid=save-semantic]") is None, "")
+    page.goto(f"{PLATFORM}/p/sales/pipelines")
+    page.wait_for_selector("[data-testid=pipeline-sales_ingest]", timeout=60_000)
+    check("... Pipelines: sales_ingest and its runs, which she can't start", page.query_selector("[data-testid=run-now]") is None, "")
+    page.goto(f"{PLATFORM}/admin")
+    page.wait_for_selector(".page .empty", timeout=30_000)
+    check("... and Administration isn't hers", page.query_selector("[data-testid=new-project]") is None, "")
+    page.goto(f"{PLATFORM}/p/sales")
+    page.wait_for_selector("[data-testid=search]", timeout=30_000)
+    page.click("[data-testid=search]")
+    page.keyboard.type("card")
+    page.wait_for_selector("[data-testid=search-results] [role=option]", timeout=60_000)
+    hits = page.inner_text("[data-testid=search-results]")
+    check("... search finds the project's columns", "orders.card_number" in hits, " ".join(hits.split())[:80])
 
     # 5 (before carol, who has a context of her own). Signing out.
-    press(page, "[data-testid=nav-sql]")
     page.goto(PLATFORM)
+    press(page, "[data-testid=whoami]")
     press(page, "[data-testid=sign-out]")
     page.wait_for_selector("#kc-form-login", timeout=60_000)
     check("signing out ends the Keycloak session: the next visit asks for a password",
           page.url.startswith(AUTH), page.url.split("?")[0])
     ctx.close()
 
-    # 3. Projects, as bob (an administrator).
+    # 3. The sales project, as bob (an administrator, and an editor of sales).
     ctx = browser.new_context(viewport={"width": 1400, "height": 900})
     page = ctx.new_page()
-    page.goto(f"{PLATFORM}/projects")
+    page.goto(f"{PLATFORM}/projects/sales")  # an address from before the redesign
     sign_in(page, "bob")
-    page.wait_for_selector("[data-testid=project-sales]", timeout=60_000)
-    press(page, "[data-testid=project-sales] a")
-    page.wait_for_selector("[data-testid=members]", timeout=30_000)
+    page.wait_for_selector("[data-testid=members]", timeout=60_000)
     members = page.inner_text("[data-testid=members]")
-    check("bob opens the sales project and sees its members", "alice" in members and "reader" in members and "editor" in members,
-          " ".join(members.split())[:120])
-    check("... with what each role gets", "Read orders in iceberg.sales" in page.inner_text("main"), "")
-    press(page, "[data-testid=semantic-link]")
-    page.wait_for_selector("[data-testid=metrics]", timeout=60_000)
+    check("bob opens the sales project and sees its members", page.url.endswith("/p/sales") and "alice" in members
+          and "reader" in members and "editor" in members, " ".join(members.split())[:120])
+    check("... with what each role gets", "Read orders in iceberg.sales" in page.inner_text("[data-testid=grants]"), "")
+    page.goto(f"{PLATFORM}/p/sales/metrics")
+    press(page, "[data-testid=definitions-toggle]")
+    page.wait_for_selector("[data-testid=semantic-yaml]", timeout=60_000)
     metrics = page.inner_text("[data-testid=metrics]")
-    check("... and its semantic layer: the metrics, editable by bob", "revenue" in metrics and "order_count" in metrics
+    check("... and its metrics, whose definitions bob can change", "revenue" in metrics and "order_count" in metrics
           and page.get_attribute("[data-testid=semantic-yaml]", "readonly") is None, " ".join(metrics.split())[:80])
+    page.goto(f"{PLATFORM}/p/sales/pipelines")
+    page.wait_for_selector("[data-testid=pipeline-sales_ingest]", timeout=60_000)
+    check("... and can start its pipelines", page.query_selector("[data-testid=run-now]") is not None, "")
+    if start_run:
+        press(page, "[data-testid=run-now]")
+        page.wait_for_selector("[data-testid=run-started]", timeout=60_000)
+        started = page.inner_text("[data-testid=run-started]")
+        # Wait for it to end: the other suites run the pipeline too, and two runs
+        # loading into Trino at once is more than a laptop's Docker holds.
+        state, deadline = "", time.time() + 600
+        while time.time() < deadline and state not in ("success", "failed"):
+            time.sleep(5)
+            state = page.evaluate("""() => fetch('/api/projects/sales/pipelines', {headers: {'X-Platform-Request': '1'}})
+                .then(r => r.json()).then(b => b.pipelines.find(p => p.id === 'sales_ingest').runs[0].state)""")
+        check("... and starts a run of sales_ingest, which runs", "manual" in started and state == "success", f"{started}; {state}")
+    page.goto(f"{PLATFORM}/admin")
+    page.wait_for_selector("[data-testid=project-sales]", timeout=30_000)
     press(page, "[data-testid=nav-access]")
     page.wait_for_selector("[data-testid=access]", timeout=30_000)
     access = page.inner_text("[data-testid=access]")
-    check("... and the Access page: who has which role", "alice" in access and "reader" in access, " ".join(access.split())[:120])
+    check("... and Administration: who has which role", "alice" in access and "reader" in access, " ".join(access.split())[:120])
     ctx.close()
 
     # 4. carol: signed in, and refused.
@@ -201,10 +265,18 @@ def run(browser, switch=True):
     sign_in(page, "carol")
     page.wait_for_selector("[data-testid=refused]", timeout=60_000)
     text = page.inner_text("[data-testid=refused]")
-    check("people in neither group are refused", "No access" in text and page.query_selector(".sidebar") is None,
+    check("people in neither group are refused", "No access" in text and page.query_selector(".topbar") is None,
           text.splitlines()[0])
     ctx.close()
     browser.close()
+
+
+def preview_rows(page, testid):
+    """A results table, as a list of {column: value}."""
+    return page.eval_on_selector(f"[data-testid={testid}]", """t => {
+        const cols = [...t.querySelectorAll('thead th')].map(th => th.innerText.trim());
+        return [...t.querySelectorAll('tbody tr')].map(tr => Object.fromEntries([...tr.children].map((td, i) => [cols[i], td.innerText.trim()])));
+    }""")
 
 
 if __name__ == "__main__":

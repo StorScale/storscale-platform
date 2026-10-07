@@ -215,17 +215,25 @@ def compile_query(project, metrics, group_by=(), where=(), order_by=(), limit=No
         raise ValueError(f"MetricFlow can't answer that: {e}") from e
 
 
-def run(c: Caller, project, sql, metrics):
-    """Run the SQL in Trino as the caller. The leading comment names the agent
-    and the person, so Ranger's audit log has both."""
-    note = f"-- storscale semantic layer: agent={c.agent} user={c.username} project={project} metrics={','.join(metrics)}\n"
+def namespace_of(project):
+    tables = (get_json(f"projects/{project}.json") or {}).get("spec", {}).get("tables", {})
+    return tables.get("catalog") or "iceberg", tables.get("namespace") or project.replace("-", "_")
+
+
+def run(c: Caller, project, sql, metrics, limit=MAX_ROWS):
+    """Run the SQL in Trino as the caller, in the project's namespace (so a
+    table's own name is enough). The leading comment names the agent and the
+    person, so Ranger's audit log has both."""
+    catalog, schema = namespace_of(project)
+    note = f"-- storscale: agent={c.agent} user={c.username} project={project} metrics={','.join(metrics)}\n"
     conn = trino.dbapi.connect(host=env.get("TRINO_HOST", "trino"), port=8443, http_scheme="https",
                                verify=env.get("TRINO_CA", "/tls/cert.pem"), user=c.username,
-                               auth=trino.auth.JWTAuthentication(c.token), source=f"storscale-semantic/{c.agent}")
+                               auth=trino.auth.JWTAuthentication(c.token), source=f"storscale-semantic/{c.agent}",
+                               catalog=catalog, schema=schema)
     cur = conn.cursor()
     try:
         cur.execute(note + sql)
-        rows = cur.fetchmany(MAX_ROWS)
+        rows = cur.fetchmany(limit)
         cols = [d[0] for d in cur.description]
     finally:
         with suppress(Exception):
@@ -371,6 +379,24 @@ def post_query(c, project, body, request):
                   body.get("order_by", []), body.get("limit"), run_it=not body.get("explain"))
 
 
+def post_sql(c, project, body, request):
+    """A SQL statement, run in Trino as the caller (the platform's SQL editor, and table previews)."""
+    member(c, project)
+    sql = (body.get("sql") or "").strip().rstrip(";")
+    if not sql:
+        raise ValueError("write a statement")
+    if ";" in sql:
+        raise ValueError("one statement at a time")
+    started = time.time()
+    try:
+        out = run(c, project, sql, ["sql"], limit=min(int(body.get("limit") or MAX_ROWS), MAX_ROWS))
+    except trino.exceptions.TrinoUserError as e:
+        raise PermissionError(e.message) if e.error_name == "PERMISSION_DENIED" else ValueError(e.message) from e
+    out["seconds"] = round(time.time() - started, 2)
+    return out
+
+
+mcp.custom_route("/api/projects/{project}/sql", methods=["POST"])(api(post_sql))
 mcp.custom_route("/api/projects/{project}/semantic", methods=["GET"])(api(get_model))
 mcp.custom_route("/api/projects/{project}/semantic", methods=["PUT"])(api(put_model))
 mcp.custom_route("/api/projects/{project}/semantic/query", methods=["POST"])(api(post_query))
