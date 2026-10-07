@@ -15,7 +15,7 @@ export default function Admin() {
           <div className="title"><h1>Administration</h1><span className="muted">Projects, access and the platform's health</span></div>
           <nav className="tabs" aria-label="Administration">
             <NavLink to="/admin/projects" data-testid="admin-projects">Projects</NavLink>
-            <NavLink to="/admin/access" data-testid="nav-access">Access</NavLink>
+            <NavLink to="/admin/access" data-testid="admin-access">Access</NavLink>
             {tools.some((t) => t.id === "monitoring") && <NavLink to="/admin/monitoring" data-testid="admin-monitoring">Monitoring</NavLink>}
             {external.map((t) => (
               <a key={t.id} href={t.url} target="_blank" rel="noreferrer">{t.name} ↗</a>

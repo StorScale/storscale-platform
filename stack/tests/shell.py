@@ -252,7 +252,7 @@ def run(browser, switch=True, start_run=True):
         check("... and starts a run of sales_ingest, which runs", "manual" in started and state == "success", f"{started}; {state}")
     page.goto(f"{PLATFORM}/admin")
     page.wait_for_selector("[data-testid=project-sales]", timeout=30_000)
-    press(page, "[data-testid=nav-access]")
+    press(page, "[data-testid=admin-access]")
     page.wait_for_selector("[data-testid=access]", timeout=30_000)
     access = page.inner_text("[data-testid=access]")
     check("... and Administration: who has which role", "alice" in access and "reader" in access, " ".join(access.split())[:120])
