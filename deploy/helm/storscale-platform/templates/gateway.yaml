@@ -5,6 +5,7 @@ metadata:
   name: gateway
   labels: {{- include "storscale.labels" . | nindent 4 }}
 spec:
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
   selector:
     matchLabels: {{- include "storscale.selector" (list .Release.Name "gateway") | nindent 6 }}
   template:

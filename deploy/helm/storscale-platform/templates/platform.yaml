@@ -6,6 +6,7 @@ metadata:
   name: platformd
   labels: {{- include "storscale.labels" . | nindent 4 }}
 spec:
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
   selector:
     matchLabels: {{- include "storscale.selector" (list .Release.Name "platformd") | nindent 6 }}
   template:
@@ -64,6 +65,7 @@ metadata:
   name: platform-operator
   labels: {{- include "storscale.labels" . | nindent 4 }}
 spec:
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
   selector:
     matchLabels: {{- include "storscale.selector" (list .Release.Name "platform-operator") | nindent 6 }}
   template:
@@ -115,6 +117,7 @@ metadata:
   name: semanticd
   labels: {{- include "storscale.labels" . | nindent 4 }}
 spec:
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
   selector:
     matchLabels: {{- include "storscale.selector" (list .Release.Name "semanticd") | nindent 6 }}
   template:

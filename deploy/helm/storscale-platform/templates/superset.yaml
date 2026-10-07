@@ -51,6 +51,7 @@ metadata:
   name: superset
   labels: {{- include "storscale.labels" . | nindent 4 }}
 spec:
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
   selector:
     matchLabels: {{- include "storscale.selector" (list .Release.Name "superset") | nindent 6 }}
   template:

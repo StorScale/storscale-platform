@@ -137,6 +137,7 @@ metadata:
   name: openmetadata
   labels: {{- include "storscale.labels" . | nindent 4 }}
 spec:
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
   selector:
     matchLabels: {{- include "storscale.selector" (list .Release.Name "openmetadata") | nindent 6 }}
   strategy: {type: Recreate}
@@ -180,6 +181,7 @@ metadata:
   name: catalog-sync
   labels: {{- include "storscale.labels" . | nindent 4 }}
 spec:
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
   selector:
     matchLabels: {{- include "storscale.selector" (list .Release.Name "catalog-sync") | nindent 6 }}
   template:

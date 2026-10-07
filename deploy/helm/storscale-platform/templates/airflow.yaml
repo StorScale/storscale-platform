@@ -77,6 +77,7 @@ metadata:
   name: airflow
   labels: {{- include "storscale.labels" . | nindent 4 }}
 spec:
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
   selector:
     matchLabels: {{- include "storscale.selector" (list .Release.Name "airflow") | nindent 6 }}
   template:
@@ -121,6 +122,7 @@ metadata:
   name: airflow-{{ $part }}
   labels: {{- include "storscale.labels" $ | nindent 4 }}
 spec:
+  progressDeadlineSeconds: {{ $.Values.progressDeadlineSeconds }}
   selector:
     matchLabels: {{- include "storscale.selector" (list $.Release.Name (printf "airflow-%s" $part)) | nindent 6 }}
   template:

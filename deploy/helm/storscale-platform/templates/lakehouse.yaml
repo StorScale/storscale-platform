@@ -17,6 +17,7 @@ metadata:
   name: nessie
   labels: {{- include "storscale.labels" . | nindent 4 }}
 spec:
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
   selector:
     matchLabels: {{- include "storscale.selector" (list .Release.Name "nessie") | nindent 6 }}
   strategy: {type: Recreate}
@@ -74,6 +75,7 @@ metadata:
   name: trino
   labels: {{- include "storscale.labels" . | nindent 4 }}
 spec:
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
   selector:
     matchLabels: {{- include "storscale.selector" (list .Release.Name "trino") | nindent 6 }}
   strategy: {type: Recreate}

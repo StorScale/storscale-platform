@@ -55,6 +55,7 @@ metadata:
   name: ranger-solr
   labels: {{- include "storscale.labels" . | nindent 4 }}
 spec:
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
   selector:
     matchLabels: {{- include "storscale.selector" (list .Release.Name "ranger-solr") | nindent 6 }}
   template:
@@ -88,6 +89,7 @@ metadata:
   name: ranger-admin
   labels: {{- include "storscale.labels" . | nindent 4 }}
 spec:
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
   selector:
     matchLabels: {{- include "storscale.selector" (list .Release.Name "ranger-admin") | nindent 6 }}
   strategy: {type: Recreate}

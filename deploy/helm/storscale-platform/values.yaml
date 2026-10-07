@@ -58,6 +58,12 @@ trino:
     nodePort: 30443   # kind maps the host's port 8443 here
   memory: 1536Mi      # its heap is 80% of this
 
+# How long a Deployment may take to become ready before Kubernetes calls its
+# rollout failed (its default is 10 minutes). On a first install, services
+# wait for the setup steps, and those for Keycloak, Buckets, Ranger and
+# Trino: with every image still to pull, that takes longer.
+progressDeadlineSeconds: 3600
+
 # Every secret the platform needs, as `.env` holds them in Compose. Each one
 # is generated on install and kept on upgrade; give a value here to choose it.
 secrets: {}

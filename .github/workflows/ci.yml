@@ -60,7 +60,7 @@ jobs:
   # installs it, and every suite of checks (helm test).
   kubernetes:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 150   # a first install pulls ~10 GB of images, then waits on each setup step
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

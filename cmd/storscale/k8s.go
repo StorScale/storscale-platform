@@ -124,7 +124,7 @@ func (k *kube) up(st *stack) error {
 			return err
 		}
 	}
-	args := append([]string{"upgrade", "--install", release, chart, "--create-namespace", "--wait", "--timeout", "30m",
+	args := append([]string{"upgrade", "--install", release, chart, "--create-namespace", "--wait", "--timeout", "60m",
 		"--set", "global.domain=" + st.setting("STORSCALE_DOMAIN")}, extra...)
 	if err := helm(args...); err != nil {
 		return fmt.Errorf("the platform didn't start: see `storscale status --k8s` and `storscale logs --k8s <service>` (%w)", err)

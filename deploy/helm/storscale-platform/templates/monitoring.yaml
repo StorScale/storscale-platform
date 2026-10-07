@@ -7,6 +7,7 @@ metadata:
   name: prometheus
   labels: {{- include "storscale.labels" . | nindent 4 }}
 spec:
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
   selector:
     matchLabels: {{- include "storscale.selector" (list .Release.Name "prometheus") | nindent 6 }}
   template:
@@ -55,6 +56,7 @@ metadata:
   name: grafana
   labels: {{- include "storscale.labels" . | nindent 4 }}
 spec:
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
   selector:
     matchLabels: {{- include "storscale.selector" (list .Release.Name "grafana") | nindent 6 }}
   template:
@@ -125,6 +127,7 @@ metadata:
   name: traffic
   labels: {{- include "storscale.labels" . | nindent 4 }}
 spec:
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
   selector:
     matchLabels: {{- include "storscale.selector" (list .Release.Name "traffic") | nindent 6 }}
   template:
