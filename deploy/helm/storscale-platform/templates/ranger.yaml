@@ -13,6 +13,7 @@ spec:
     metadata:
       labels: {{- include "storscale.selector" (list .Release.Name "ranger-db") | nindent 8 }}
     spec:
+      enableServiceLinks: false
       containers:
         - name: postgres
           image: {{ .Values.upstream.rangerDb }}
@@ -60,6 +61,7 @@ spec:
     metadata:
       labels: {{- include "storscale.selector" (list .Release.Name "ranger-solr") | nindent 8 }}
     spec:
+      enableServiceLinks: false
       containers:
         - name: solr
           image: {{ .Values.upstream.rangerSolr }}
@@ -93,6 +95,7 @@ spec:
     metadata:
       labels: {{- include "storscale.selector" (list .Release.Name "ranger-admin") | nindent 8 }}
     spec:
+      enableServiceLinks: false
       serviceAccountName: storscale
       initContainers:
         {{- include "storscale.wait" (list . "solr" (list "url" "http://ranger-solr:8983/solr/")) | nindent 8 }}

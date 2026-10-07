@@ -25,6 +25,23 @@ from botocore.exceptions import ClientError
 
 from lakekit import check, env, finish, s3
 
+import k8s
+
+
+def drive(mode):
+    """Make one of Buckets' four drives unreadable (0o000), or readable again,
+    as a failing disk would be: in Compose, the drive's volume, mounted here
+    (/drive3); in Kubernetes, its volume claim, from a pod beside Buckets'
+    (BUCKETS_DRIVE: <pod>/<claim>)."""
+    if os.environ.get("BUCKETS_DRIVE"):
+        pod, claim = os.environ["BUCKETS_DRIVE"].split("/")
+        # As root: the volume's directory may be root's (kind's local volumes
+        # are). Restored, it is Buckets' own, as in Compose.
+        restore = f"chown 65532:65532 /volume && chmod {mode:o} /volume"
+        k8s.run_with_volume(pod, claim, ["sh", "-c", restore if mode else "chmod 0 /volume"], user=0)
+    else:
+        os.chmod("/drive3", mode)
+
 PROM = "http://prometheus:9090/api/v1"
 GRAFANA = "http://grafana:3000/monitoring"
 GRAFANA_URL = os.environ["MONITORING_URL"]  # through the gateway, as a browser
@@ -134,7 +151,7 @@ def main():
     check("people in neither group can't sign in to Grafana", roles["carol"] is None, f"carol {roles['carol']}")
 
     # 5. A failed drive, and its recovery. Unreadable until it's restored.
-    os.chmod("/drive3", 0o000)
+    drive(0o000)
     try:
         offline = wait(lambda: (value("max(minio_cluster_drive_offline_total)") or 0) >= 1, 180)
         check("a failed drive shows up as offline", offline,
@@ -144,7 +161,7 @@ def main():
         check("the drive-offline and degraded-set alerts start", started,
               ", ".join(f"{k} {v}" for k, v in sorted((started or alerts()).items())) or "no alerts")
     finally:
-        os.chmod("/drive3", 0o755)
+        drive(0o755)
     online = wait(lambda: value("max(minio_cluster_drive_offline_total)") == 0, 180)
     check("once it's readable again, the drive is back online", online,
           f"drives online {value('max(minio_cluster_drive_online_total)'):.0f}, offline "

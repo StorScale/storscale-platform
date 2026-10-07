@@ -15,6 +15,7 @@ spec:
       annotations:
         checksum/realm: {{ .Files.Get "files/keycloak/realm.json" | sha256sum }}
     spec:
+      enableServiceLinks: false
       containers:
         - name: keycloak
           image: {{ .Values.upstream.keycloak }}

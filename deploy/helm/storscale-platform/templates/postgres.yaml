@@ -33,6 +33,7 @@ spec:
     metadata:
       labels: {{- include "storscale.selector" (list .Release.Name "postgres") | nindent 8 }}
     spec:
+      enableServiceLinks: false
       containers:
         - name: postgres
           image: {{ .Values.upstream.postgres }}

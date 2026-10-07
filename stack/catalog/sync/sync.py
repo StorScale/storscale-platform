@@ -4,7 +4,8 @@ Every round, it:
   1. signs in to OpenMetadata as the platform operator's service account (an
      administrator there), and writes the ingestion bot's token to
      /catalog/token, for the services that report to the catalog (Airflow's
-     lineage, platformd's Flow view);
+     lineage, platformd's Flow view); in Kubernetes, to the Secret
+     catalog-token, which they mount there;
   2. ingests Trino's tables (the iceberg catalog) as the database service
      "trino", so every table, column and schema is in the catalog;
   3. runs each project's checks (spec.tables.checks) as OpenMetadata tests on
@@ -18,6 +19,7 @@ Metadata is ingested every METADATA_EVERY seconds; checks run every round.
 import json
 import logging
 import os
+import sys
 import time
 
 import boto3
@@ -28,6 +30,12 @@ from metadata.workflow.metadata import MetadataWorkflow
 
 logging.basicConfig(level=logging.INFO, format="catalog-sync: %(message)s")
 log = logging.getLogger("catalog-sync")
+
+sys.path.insert(0, "/tools")   # stack/tools: k8s.py, in Kubernetes
+try:
+    import k8s
+except ImportError:
+    k8s = None
 for noisy in ("metadata", "urllib3", "botocore", "sqlfluff"):
     logging.getLogger(noisy).setLevel(logging.WARNING)
 
@@ -153,6 +161,7 @@ def lineage_settings():
 def main():
     os.makedirs("/catalog", exist_ok=True)
     last_metadata = 0.0
+    shared = None   # the token last written to the Secret
     while True:
         try:
             lineage_settings()
@@ -167,6 +176,9 @@ def main():
                 f.write(token)
             os.chmod("/catalog/token.tmp", 0o644)
             os.replace("/catalog/token.tmp", "/catalog/token")
+            if k8s and k8s.in_cluster() and token != shared:
+                k8s.put_secret("catalog-token", {"token": token})
+                shared = token
             if time.time() - last_metadata > METADATA_EVERY:
                 ingest_metadata(token)
                 last_metadata = time.time()

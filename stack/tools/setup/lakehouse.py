@@ -60,5 +60,7 @@ if __name__ == "__main__":
         ranger("POST", "/service/xusers/secure/users", json={
             "name": CATALOG_USER, "firstName": "OpenMetadata", "password": env["RANGER_PASSWORD"] + "om",
             "userRoleList": ["ROLE_USER"], "status": 1, "userSource": 1})
-    setup_ranger(POLICIES)
+    # Superset's policies are the trino stage's (superset.py): kept here, so
+    # an upgrade, which runs both stages again, never drops them for a while.
+    setup_ranger(POLICIES, keep=("superset:", "BI tools:"))
     log("done")

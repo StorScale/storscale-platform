@@ -9,6 +9,7 @@ Uses the pod's service account; nothing outside the release's namespace.
 import base64
 import os
 import sys
+import time
 
 import requests
 
@@ -68,6 +69,33 @@ def mark_done(step, revision):
     data = (r.json().get("data") or {}) if r.ok else {}
     data[step] = str(revision)
     _put("configmaps", DONE, {"data": data})
+
+
+def run_with_volume(beside, claim, command, user=65532):
+    """Run a command in a pod of its own with the volume claim mounted at
+    /volume, on the node of the pod `beside` (a ReadWriteOnce volume is
+    mounted there already), and wait for it to finish."""
+    pod = _api("GET", f"pods/{beside}").json()
+    name = f"storscale-volume-{int(time.time())}"
+    image = os.environ.get("STORSCALE_TOOLS_IMAGE") or _api("GET", f"pods/{os.environ['HOSTNAME']}").json()["spec"]["containers"][0]["image"]
+    r = _api("POST", "pods", json={"apiVersion": "v1", "kind": "Pod", "metadata": {"name": name}, "spec": {
+        "nodeName": pod["spec"]["nodeName"], "restartPolicy": "Never", "enableServiceLinks": False,
+        "securityContext": {"runAsUser": user, "runAsGroup": user},
+        "containers": [{"name": "run", "image": image, "imagePullPolicy": "IfNotPresent", "command": command,
+                        "volumeMounts": [{"name": "v", "mountPath": "/volume"}]}],
+        "volumes": [{"name": "v", "persistentVolumeClaim": {"claimName": claim}}]}})
+    r.raise_for_status()
+    try:
+        for _ in range(120):
+            phase = _api("GET", f"pods/{name}").json().get("status", {}).get("phase")
+            if phase in ("Succeeded", "Failed"):
+                if phase == "Failed":
+                    raise RuntimeError(f"{' '.join(command)} on {claim}: failed")
+                return
+            time.sleep(1)
+        raise TimeoutError(f"{' '.join(command)} on {claim}: still running after 2 minutes")
+    finally:
+        _api("DELETE", f"pods/{name}")
 
 
 if __name__ == "__main__":

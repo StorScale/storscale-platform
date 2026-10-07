@@ -7,8 +7,8 @@ metadata:
   name: storscale-test
   labels: {{- include "storscale.labels" . | nindent 4 }}
 ---
-# The monitoring suite fails one of Buckets' drives for a minute, from inside
-# its pod, as a failing disk would.
+# The monitoring suite fails one of Buckets' drives for a minute, as a failing
+# disk would: from a pod of its own, with the drive's volume mounted.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -17,10 +17,7 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: [pods]
-    verbs: [get, list]
-  - apiGroups: [""]
-    resources: [pods/exec]
-    verbs: [create, get]
+    verbs: [get, list, create, delete]
   - apiGroups: [""]
     resources: [configmaps, secrets]
     verbs: [get]
@@ -44,6 +41,7 @@ metadata:
     helm.sh/hook-weight: "2"
     helm.sh/hook-delete-policy: before-hook-creation
 spec:
+  enableServiceLinks: false
   serviceAccountName: storscale-test
   restartPolicy: Never
   containers:
@@ -59,7 +57,8 @@ spec:
           exec python -u /tests/run.py $picked
       {{- include "storscale.envFrom" . | nindent 6 }}
       env:
-        - {name: BUCKETS_DRIVE, value: "buckets-pool-0-0:/data3"}
+        - {name: BUCKETS_DRIVE, value: "buckets-pool-0-0/data2-buckets-pool-0-0"}
+        - {name: STORSCALE_TOOLS_IMAGE, value: {{ include "storscale.image" (list . "tools") | quote }}}
       volumeMounts:
         - {name: files-tools, mountPath: /tools}
         - {name: files-tests, mountPath: /tests}
@@ -86,6 +85,7 @@ metadata:
     helm.sh/hook-weight: "1"
     helm.sh/hook-delete-policy: before-hook-creation
 spec:
+  enableServiceLinks: false
   restartPolicy: Never
   containers:
     - name: browser

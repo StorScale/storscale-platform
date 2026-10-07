@@ -24,6 +24,7 @@ spec:
     metadata:
       labels: {{- include "storscale.selector" (list .Release.Name "nessie") | nindent 8 }}
     spec:
+      enableServiceLinks: false
       serviceAccountName: storscale
       securityContext: {fsGroup: 185}
       initContainers:
@@ -82,6 +83,7 @@ spec:
       annotations:
         checksum/config: {{ include "storscale.filesConfigMap" (list . "trino" "trino") | sha256sum }}
     spec:
+      enableServiceLinks: false
       serviceAccountName: storscale
       initContainers:
         {{- include "storscale.wait" (list . "setup" (list "job" "setup")) | nindent 8 }}

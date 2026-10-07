@@ -1,0 +1,105 @@
+# JupyterHub: notebooks at the platform's /notebooks/, a pod per person
+# (KubeSpawner), each with a volume of their own and their own Buckets
+# credentials (from their Keycloak sign-in).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jupyterhub
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: jupyterhub
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods, persistentvolumeclaims, services]
+    verbs: [get, list, watch, create, delete]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [get, list, watch]
+  # wait.py, for the setup step the hub waits for
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jupyterhub
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: jupyterhub}
+subjects:
+  - {kind: ServiceAccount, name: jupyterhub, namespace: {{ .Release.Namespace }}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jupyterhub-data
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.storage.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources: {requests: {storage: {{ .Values.storage.jupyterhub }}}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jupyterhub
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "storscale.selector" (list .Release.Name "jupyterhub") | nindent 6 }}
+  strategy: {type: Recreate}   # one hub: its database is a file on its volume
+  template:
+    metadata:
+      labels: {{- include "storscale.selector" (list .Release.Name "jupyterhub") | nindent 8 }}
+      annotations:
+        checksum/config: {{ include "storscale.filesConfigMap" (list . "jupyterhub" "jupyterhub") | sha256sum }}
+    spec:
+      enableServiceLinks: false
+      serviceAccountName: jupyterhub
+      securityContext: {fsGroup: 0}
+      initContainers:
+        {{- include "storscale.wait" (list . "setup" (list "job" "setup")) | nindent 8 }}
+        {{- include "storscale.wait" (list . "keycloak" (list "url" "http://keycloak:9000/health/ready")) | nindent 8 }}
+      containers:
+        - name: hub
+          image: {{ include "storscale.image" (list . "jupyterhub") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          command: ["jupyterhub", "-f", "/etc/jupyterhub/jupyterhub_config.py"]
+          {{- include "storscale.envFrom" . | nindent 10 }}
+          env:
+            - {name: NOTEBOOK_IMAGE, value: {{ include "storscale.image" (list . "notebook") | quote }}}
+            - {name: NOTEBOOK_PULL_POLICY, value: {{ .Values.images.pullPolicy | quote }}}
+            - {name: NOTEBOOK_MEMORY, value: {{ .Values.notebooks.memoryLimit | quote }}}
+            - {name: NOTEBOOK_STORAGE, value: {{ .Values.notebooks.storage | quote }}}
+          ports:
+            - {name: http, containerPort: 8000}
+            - {name: api, containerPort: 8081}
+          readinessProbe:   # the hub itself: the proxy reaches it through the Service, which waits for this
+            httpGet: {path: /notebooks/hub/health, port: api}
+            periodSeconds: 5
+            failureThreshold: 60
+          volumeMounts:
+            - {name: files-jupyterhub, mountPath: /etc/jupyterhub/jupyterhub_config.py, subPath: jupyterhub_config.py}
+            - {name: data, mountPath: /srv/jupyterhub/data}
+          {{- include "storscale.resources" (list "50m" "192Mi" "512Mi") | nindent 10 }}
+      volumes:
+        {{- include "storscale.filesVolume" (list . "jupyterhub" "jupyterhub") | nindent 8 }}
+        {{- include "storscale.filesVolume" (list . "tools" "tools") | nindent 8 }}
+        - {name: data, persistentVolumeClaim: {claimName: jupyterhub-data}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jupyterhub
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "storscale.selector" (list .Release.Name "jupyterhub") | nindent 4 }}
+  ports:
+    - {name: http, port: 8000, targetPort: http}
+    - {name: api, port: 8081, targetPort: api}   # notebook servers reach the hub here

@@ -1,0 +1,147 @@
+# Airflow: pipelines, at the platform's /pipelines/. The API server and UI,
+# the scheduler (LocalExecutor: it runs the tasks too) and the DAG processor,
+# after airflow-init (its database, the platform's account, and the
+# pipelines' Keycloak client).
+{{- define "storscale.airflow.common" -}}
+image: {{ include "storscale.image" (list . "airflow") }}
+imagePullPolicy: {{ .Values.images.pullPolicy }}
+{{ include "storscale.envFrom" . }}
+env:
+  - {name: AIRFLOW__CORE__EXECUTOR, value: LocalExecutor}
+  - {name: AIRFLOW__CORE__PARALLELISM, value: "4"}
+  - {name: AIRFLOW__CORE__AUTH_MANAGER, value: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager}
+  - {name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN, value: "postgresql+psycopg2://airflow:$(AIRFLOW_DB_PASSWORD)@airflow-db:5432/airflow"}
+  - {name: AIRFLOW__CORE__FERNET_KEY, value: "$(AIRFLOW_FERNET_KEY)"}
+  - {name: AIRFLOW__API__SECRET_KEY, value: "$(AIRFLOW_SECRET_KEY)"}
+  - {name: AIRFLOW__API_AUTH__JWT_SECRET, value: "$(AIRFLOW_JWT_SECRET)"}
+  - {name: AIRFLOW__API__BASE_URL, value: "{{ include "storscale.url" . }}/pipelines"}
+  - {name: AIRFLOW__API__PORT, value: "8090"}
+  - {name: AIRFLOW__CORE__EXECUTION_API_SERVER_URL, value: "http://airflow:8090/pipelines/execution/"}
+  - {name: AIRFLOW__CORE__LOAD_EXAMPLES, value: "False"}
+  - {name: AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION, value: "False"}
+  - {name: AIRFLOW__DAG_PROCESSOR__REFRESH_INTERVAL, value: "10"}
+  - {name: STORSCALE_REVISION, value: {{ .Release.Revision | quote }}}
+volumeMounts:
+  - {name: files-airflow, mountPath: /opt/airflow/webserver_config.py, subPath: webserver_config.py}
+  - {name: files-airflow, mountPath: /opt/airflow/dags, subPath: dags}
+  - {name: files-tools, mountPath: /tools}
+  - {name: tls, mountPath: /tls}
+  - {name: catalog, mountPath: /catalog, readOnly: true}   # the catalog's token, for reporting lineage
+{{- end }}
+{{- define "storscale.airflow.volumes" -}}
+{{- include "storscale.filesVolume" (list . "airflow" "airflow") }}
+{{- include "storscale.filesVolume" (list . "tools" "tools") | nindent 0 }}
+- {name: tls, secret: {secretName: trino-tls}}
+- {name: catalog, secret: {secretName: catalog-token, optional: true}}
+{{- end }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: airflow-init-{{ .Release.Revision }}
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 10
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {{- include "storscale.selector" (list .Release.Name "airflow-init") | nindent 8 }}
+    spec:
+      enableServiceLinks: false
+      serviceAccountName: storscale
+      restartPolicy: OnFailure   # retried until its database is up
+      containers:
+        - name: init
+          {{- include "storscale.airflow.common" . | nindent 10 }}
+          command: ["bash", "-c"]
+          args:
+            - |
+              airflow db migrate && airflow fab-db migrate &&
+              airflow connections delete keycloak_pipelines >/dev/null 2>&1;
+              # The platform's own account, for the pipelines pages. (create exits 0
+              # when the user exists, so the password is set again either way.)
+              airflow users create --username storscale-platform --password "$AIRFLOW_PLATFORM_PASSWORD" \
+                --firstname StorScale --lastname Platform --email platform@{{ .Values.global.domain }} --role Op >/dev/null 2>&1;
+              airflow users reset-password --username storscale-platform --password "$AIRFLOW_PLATFORM_PASSWORD" >/dev/null &&
+              airflow connections add keycloak_pipelines --conn-type http \
+                --conn-host {{ .Values.global.domain }} --conn-port {{ .Values.global.port }} --conn-schema sso \
+                --conn-login airflow-pipelines --conn-password "$AIRFLOW_PIPELINES_SECRET" \
+                --conn-description "The pipelines' Keycloak service account (client credentials)" &&
+              python /tools/k8s.py done airflow-init
+          {{- include "storscale.resources" (list "100m" "384Mi" "1Gi") | nindent 10 }}
+      volumes:
+        {{- include "storscale.airflow.volumes" . | nindent 8 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "storscale.selector" (list .Release.Name "airflow") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "storscale.selector" (list .Release.Name "airflow") | nindent 8 }}
+      annotations:
+        checksum/config: {{ include "storscale.filesConfigMap" (list . "airflow" "airflow") | sha256sum }}
+    spec:
+      enableServiceLinks: false
+      serviceAccountName: storscale
+      initContainers:
+        {{- include "storscale.wait" (list . "setup" (list "job" "airflow-init" "setup-trino")) | nindent 8 }}
+        {{- include "storscale.wait" (list . "keycloak" (list "url" "http://keycloak:9000/health/ready")) | nindent 8 }}
+      containers:
+        - name: api-server
+          {{- include "storscale.airflow.common" . | nindent 10 }}
+          args: ["api-server"]
+          ports:
+            - {name: http, containerPort: 8090}
+          readinessProbe:
+            httpGet: {path: /pipelines/api/v2/monitor/health, port: http}
+            periodSeconds: 5
+            failureThreshold: 60
+          {{- include "storscale.resources" (list "100m" "384Mi" "1Gi") | nindent 10 }}
+      volumes:
+        {{- include "storscale.airflow.volumes" . | nindent 8 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: airflow
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "storscale.selector" (list .Release.Name "airflow") | nindent 4 }}
+  ports:
+    - {name: http, port: 8090, targetPort: http}
+{{- range $part := list "scheduler" "dag-processor" }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-{{ $part }}
+  labels: {{- include "storscale.labels" $ | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "storscale.selector" (list $.Release.Name (printf "airflow-%s" $part)) | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "storscale.selector" (list $.Release.Name (printf "airflow-%s" $part)) | nindent 8 }}
+      annotations:
+        checksum/config: {{ include "storscale.filesConfigMap" (list $ "airflow" "airflow") | sha256sum }}
+    spec:
+      enableServiceLinks: false
+      serviceAccountName: storscale
+      initContainers:
+        {{- include "storscale.wait" (list $ "airflow" (list "url" "http://airflow:8090/pipelines/api/v2/monitor/health")) | nindent 8 }}
+      containers:
+        - name: {{ $part }}
+          {{- include "storscale.airflow.common" $ | nindent 10 }}
+          args: [{{ $part | quote }}]
+          {{- if eq $part "scheduler" }}
+          {{- include "storscale.resources" (list "100m" "384Mi" "1536Mi") | nindent 10 }}
+          {{- else }}
+          {{- include "storscale.resources" (list "50m" "256Mi" "768Mi") | nindent 10 }}
+          {{- end }}
+      volumes:
+        {{- include "storscale.airflow.volumes" $ | nindent 8 }}
+{{- end }}

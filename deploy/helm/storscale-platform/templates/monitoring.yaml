@@ -1,0 +1,148 @@
+# Monitoring: Prometheus (scraping Buckets with a metrics-only account's
+# token, and the Buckets chart's alert rules) and Grafana at the platform's
+# /monitoring/, with Keycloak sign-in.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "storscale.selector" (list .Release.Name "prometheus") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "storscale.selector" (list .Release.Name "prometheus") | nindent 8 }}
+      annotations:
+        checksum/config: {{ include "storscale.filesConfigMap" (list . "monitoring" "monitoring") | sha256sum }}
+    spec:
+      enableServiceLinks: false
+      serviceAccountName: storscale
+      initContainers:
+        # the token setup's monitoring step makes
+        {{- include "storscale.wait" (list . "token" (list "secret" "prometheus-token" "token")) | nindent 8 }}
+      containers:
+        - name: prometheus
+          image: {{ .Values.upstream.prometheus }}
+          args: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=7d"]
+          ports:
+            - {name: http, containerPort: 9090}
+          readinessProbe:
+            httpGet: {path: /-/ready, port: http}
+            periodSeconds: 5
+          volumeMounts:
+            - {name: files-monitoring, mountPath: /etc/prometheus/prometheus.yml, subPath: prometheus/prometheus.yml}
+            - {name: files-monitoring, mountPath: /etc/prometheus/rules.yaml, subPath: prometheus/rules.yaml}
+            - {name: token, mountPath: /etc/prometheus/token}
+          {{- include "storscale.resources" (list "50m" "128Mi" "512Mi") | nindent 10 }}
+      volumes:
+        {{- include "storscale.filesVolume" (list . "monitoring" "monitoring") | nindent 8 }}
+        {{- include "storscale.filesVolume" (list . "tools" "tools") | nindent 8 }}
+        - {name: token, secret: {secretName: prometheus-token}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "storscale.selector" (list .Release.Name "prometheus") | nindent 4 }}
+  ports:
+    - {name: http, port: 9090, targetPort: http}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "storscale.selector" (list .Release.Name "grafana") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "storscale.selector" (list .Release.Name "grafana") | nindent 8 }}
+      annotations:
+        checksum/config: {{ include "storscale.filesConfigMap" (list . "monitoring" "monitoring") | sha256sum }}
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: grafana
+          image: {{ .Values.upstream.grafana }}
+          env:
+            - {name: GF_SERVER_ROOT_URL, value: "{{ include "storscale.url" . }}/monitoring/"}
+            - {name: GF_SERVER_SERVE_FROM_SUB_PATH, value: "true"}
+            - {name: GF_SECURITY_ADMIN_PASSWORD, valueFrom: {secretKeyRef: {name: storscale-env, key: GRAFANA_ADMIN_PASSWORD}}}
+            # The platform shows Grafana in a frame; the gateway says which pages may.
+            - {name: GF_SECURITY_ALLOW_EMBEDDING, value: "true"}
+            # People sign in with Keycloak: engineers edit dashboards, analysts view
+            # them, and anyone in neither group is refused (role_attribute_strict).
+            - {name: GF_AUTH_GENERIC_OAUTH_ENABLED, value: "true"}
+            - {name: GF_AUTH_GENERIC_OAUTH_NAME, value: Keycloak}
+            - {name: GF_AUTH_GENERIC_OAUTH_CLIENT_ID, value: grafana}
+            - {name: GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET, valueFrom: {secretKeyRef: {name: storscale-env, key: GRAFANA_OAUTH_SECRET}}}
+            - {name: GF_AUTH_GENERIC_OAUTH_SCOPES, value: openid profile email}
+            - {name: GF_AUTH_GENERIC_OAUTH_USE_PKCE, value: "true"}
+            - {name: GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP, value: "true"}
+            - {name: GF_AUTH_GENERIC_OAUTH_AUTH_URL, value: "{{ include "storscale.url" . }}/sso/realms/lakehouse/protocol/openid-connect/auth"}
+            - {name: GF_AUTH_GENERIC_OAUTH_TOKEN_URL, value: "http://keycloak:8080/sso/realms/lakehouse/protocol/openid-connect/token"}
+            - {name: GF_AUTH_GENERIC_OAUTH_API_URL, value: "http://keycloak:8080/sso/realms/lakehouse/protocol/openid-connect/userinfo"}
+            - {name: GF_AUTH_GENERIC_OAUTH_LOGIN_ATTRIBUTE_PATH, value: preferred_username}
+            - {name: GF_AUTH_GENERIC_OAUTH_EMAIL_ATTRIBUTE_PATH, value: email}
+            - {name: GF_AUTH_GENERIC_OAUTH_GROUPS_ATTRIBUTE_PATH, value: groups}
+            - {name: GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH, value: "contains(groups[*], 'engineers') && 'Editor' || contains(groups[*], 'analysts') && 'Viewer'"}
+            - {name: GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_STRICT, value: "true"}
+            - {name: GF_AUTH_GENERIC_OAUTH_SKIP_ORG_ROLE_SYNC, value: "false"}
+            - {name: GF_AUTH_SIGNOUT_REDIRECT_URL, value: "{{ include "storscale.url" . }}/sso/realms/lakehouse/protocol/openid-connect/logout"}
+            - {name: GF_USERS_DEFAULT_THEME, value: dark}
+            - {name: GF_ANALYTICS_REPORTING_ENABLED, value: "false"}
+            - {name: GF_ANALYTICS_CHECK_FOR_UPDATES, value: "false"}
+            - {name: GF_NEWS_NEWS_FEED_ENABLED, value: "false"}
+          ports:
+            - {name: http, containerPort: 3000}
+          readinessProbe:
+            httpGet: {path: /monitoring/api/health, port: http}
+            periodSeconds: 5
+          volumeMounts:
+            - {name: files-monitoring, mountPath: /etc/grafana/provisioning, subPath: grafana/provisioning}
+            - {name: files-monitoring, mountPath: /var/lib/grafana/dashboards/buckets, subPath: dashboards}
+          {{- include "storscale.resources" (list "50m" "128Mi" "512Mi") | nindent 10 }}
+      volumes:
+        {{- include "storscale.filesVolume" (list . "monitoring" "monitoring") | nindent 8 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "storscale.selector" (list .Release.Name "grafana") | nindent 4 }}
+  ports:
+    - {name: http, port: 3000, targetPort: http}
+---
+# A little S3 traffic, so the storage dashboards have something to show.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traffic
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "storscale.selector" (list .Release.Name "traffic") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "storscale.selector" (list .Release.Name "traffic") | nindent 8 }}
+    spec:
+      enableServiceLinks: false
+      serviceAccountName: storscale
+      initContainers:
+        {{- include "storscale.wait" (list . "setup" (list "job" "setup")) | nindent 8 }}
+      containers:
+        - name: traffic
+          image: {{ include "storscale.image" (list . "tools") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          command: ["python", "-u", "/tools/traffic.py"]
+          {{- include "storscale.envFrom" . | nindent 10 }}
+          volumeMounts:
+            - {name: files-tools, mountPath: /tools}
+          {{- include "storscale.resources" (list "10m" "48Mi" "256Mi") | nindent 10 }}
+      volumes:
+        {{- include "storscale.filesVolume" (list . "tools" "tools") | nindent 8 }}

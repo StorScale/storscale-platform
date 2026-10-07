@@ -1,0 +1,217 @@
+# The catalog: OpenMetadata (at catalog.<domain>, through the gateway), its
+# search (OpenSearch), and catalog-sync, which keeps it in step with Trino's
+# tables and the projects' checks, and shares its bot token (Secret catalog-token).
+{{- define "storscale.openmetadata.env" -}}
+- {name: OPENMETADATA_HEAP_OPTS, value: "-Xmx640m -Xms320m"}
+- {name: SERVER_HOST_API_URL, value: "http://openmetadata:8585/api"}
+- {name: DB_DRIVER_CLASS, value: org.postgresql.Driver}
+- {name: DB_SCHEME, value: postgresql}
+- {name: DB_PARAMS, value: sslmode=disable}
+- {name: DB_HOST, value: openmetadata-db}
+- {name: DB_PORT, value: "5432"}
+- {name: OM_DATABASE, value: openmetadata_db}
+- {name: DB_USER, value: openmetadata_user}
+- {name: DB_USER_PASSWORD, valueFrom: {secretKeyRef: {name: storscale-env, key: OPENMETADATA_DB_PASSWORD}}}
+- {name: SEARCH_TYPE, value: opensearch}
+- {name: ELASTICSEARCH_HOST, value: openmetadata-search}
+- {name: ELASTICSEARCH_PORT, value: "9200"}
+- {name: ELASTICSEARCH_SCHEME, value: http}
+# No Airflow of its own: the platform runs ingestion and tests (catalog-sync).
+- {name: PIPELINE_SERVICE_CLIENT_ENABLED, value: "false"}
+- {name: FERNET_KEY, valueFrom: {secretKeyRef: {name: storscale-env, key: OPENMETADATA_FERNET_KEY}}}
+# People sign in with Keycloak (a confidential client); bots use OpenMetadata's own JWTs.
+- {name: AUTHENTICATION_PROVIDER, value: custom-oidc}
+- {name: AUTHENTICATION_CLIENT_TYPE, value: confidential}
+- {name: AUTHENTICATION_CLIENT_ID, value: openmetadata}
+- {name: AUTHENTICATION_AUTHORITY, value: "{{ include "storscale.url" . }}/sso/realms/lakehouse"}
+- {name: AUTHENTICATION_PUBLIC_KEYS, value: "[{{ include "storscale.url" . }}/sso/realms/lakehouse/protocol/openid-connect/certs,http://localhost:8585/api/v1/system/config/jwks]"}
+- {name: AUTHENTICATION_CALLBACK_URL, value: "{{ include "storscale.subURL" (list . "catalog") }}/callback"}
+- {name: AUTHENTICATION_JWT_PRINCIPAL_CLAIMS, value: "[preferred_username,email,sub]"}
+- {name: OIDC_TYPE, value: Keycloak}
+- {name: OIDC_CLIENT_ID, value: openmetadata}
+- {name: OIDC_CLIENT_SECRET, valueFrom: {secretKeyRef: {name: storscale-env, key: OPENMETADATA_OAUTH_SECRET}}}
+- {name: OIDC_DISCOVERY_URI, value: "{{ include "storscale.url" . }}/sso/realms/lakehouse/.well-known/openid-configuration"}
+- {name: OIDC_CALLBACK, value: "{{ include "storscale.subURL" (list . "catalog") }}/callback"}
+- {name: OIDC_SERVER_URL, value: {{ include "storscale.subURL" (list . "catalog") | quote }}}
+- {name: OIDC_SCOPE, value: openid email profile}
+# Use the person's Keycloak session, as the other tools do (no fresh sign-in).
+- {name: OIDC_MAX_AGE, value: "28800"}
+# Administrators: the platform operator's service account (which sets the catalog up) and bob.
+- {name: AUTHORIZER_ADMIN_PRINCIPALS, value: "[service-account-platform-operator,bob]"}
+- {name: AUTHORIZER_PRINCIPAL_DOMAIN, value: {{ .Values.global.domain | quote }}}
+- {name: STORSCALE_REVISION, value: {{ .Release.Revision | quote }}}
+{{- end }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: openmetadata-search
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  serviceName: openmetadata-search
+  selector:
+    matchLabels: {{- include "storscale.selector" (list .Release.Name "openmetadata-search") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "storscale.selector" (list .Release.Name "openmetadata-search") | nindent 8 }}
+    spec:
+      enableServiceLinks: false
+      securityContext: {fsGroup: 1000}
+      containers:
+        - name: opensearch
+          image: {{ include "storscale.image" (list . "opensearch") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          env:
+            - {name: discovery.type, value: single-node}
+            - {name: DISABLE_INSTALL_DEMO_CONFIG, value: "true"}
+            - {name: DISABLE_SECURITY_PLUGIN, value: "true"}
+            - {name: OPENSEARCH_JAVA_OPTS, value: "-Xms384m -Xmx384m"}
+            # One node: its disk thresholds would make the catalog's indices read-only.
+            - {name: cluster.routing.allocation.disk.threshold_enabled, value: "false"}
+          ports:
+            - {name: http, containerPort: 9200}
+          readinessProbe:
+            exec: {command: ["sh", "-c", "curl -s http://localhost:9200/_cluster/health | grep -qE '\"status\":\"(green|yellow)\"'"]}
+            periodSeconds: 5
+            failureThreshold: 60
+          volumeMounts:
+            - {name: data, mountPath: /usr/share/opensearch/data}
+          {{- include "storscale.resources" (list "100m" "640Mi" "1Gi") | nindent 10 }}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- with .Values.storage.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources: {requests: {storage: {{ .Values.storage.opensearch }}}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openmetadata-search
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "storscale.selector" (list .Release.Name "openmetadata-search") | nindent 4 }}
+  ports:
+    - {name: http, port: 9200, targetPort: http}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: openmetadata-migrate-{{ .Release.Revision }}
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 10
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {{- include "storscale.selector" (list .Release.Name "openmetadata-migrate") | nindent 8 }}
+    spec:
+      enableServiceLinks: false
+      serviceAccountName: storscale
+      restartPolicy: OnFailure
+      initContainers:
+        {{- include "storscale.wait" (list . "search" (list "url" "http://openmetadata-search:9200/_cluster/health")) | nindent 8 }}
+        - name: migrate
+          image: {{ .Values.upstream.openmetadata }}
+          command: ["./bootstrap/openmetadata-ops.sh", "migrate"]
+          env: {{- include "storscale.openmetadata.env" . | nindent 12 }}
+          {{- include "storscale.resources" (list "100m" "512Mi" "1Gi") | nindent 10 }}
+      containers:
+        # Once the migration has finished: the server waits for this mark.
+        - name: done
+          image: {{ include "storscale.image" (list . "tools") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          command: ["python", "/tools/k8s.py", "done", "openmetadata-migrate"]
+          env:
+            - {name: STORSCALE_K8S, value: "true"}
+            - {name: STORSCALE_REVISION, value: {{ .Release.Revision | quote }}}
+          volumeMounts:
+            - {name: files-tools, mountPath: /tools}
+      volumes:
+        {{- include "storscale.filesVolume" (list . "tools" "tools") | nindent 8 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openmetadata
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "storscale.selector" (list .Release.Name "openmetadata") | nindent 6 }}
+  strategy: {type: Recreate}
+  template:
+    metadata:
+      labels: {{- include "storscale.selector" (list .Release.Name "openmetadata") | nindent 8 }}
+    spec:
+      enableServiceLinks: false
+      serviceAccountName: storscale
+      initContainers:
+        {{- include "storscale.wait" (list . "migrate" (list "job" "openmetadata-migrate")) | nindent 8 }}
+        {{- include "storscale.wait" (list . "keycloak" (list "url" "http://keycloak:9000/health/ready")) | nindent 8 }}
+      containers:
+        - name: openmetadata
+          image: {{ .Values.upstream.openmetadata }}
+          env: {{- include "storscale.openmetadata.env" . | nindent 12 }}
+          ports:
+            - {name: http, containerPort: 8585}
+            - {name: admin, containerPort: 8586}
+          readinessProbe:
+            httpGet: {path: /healthcheck, port: admin}
+            periodSeconds: 10
+            failureThreshold: 60
+          {{- include "storscale.resources" (list "100m" "896Mi" "1280Mi") | nindent 10 }}
+      volumes:
+        {{- include "storscale.filesVolume" (list . "tools" "tools") | nindent 8 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openmetadata
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "storscale.selector" (list .Release.Name "openmetadata") | nindent 4 }}
+  ports:
+    - {name: http, port: 8585, targetPort: http}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog-sync
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "storscale.selector" (list .Release.Name "catalog-sync") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "storscale.selector" (list .Release.Name "catalog-sync") | nindent 8 }}
+    spec:
+      enableServiceLinks: false
+      serviceAccountName: storscale
+      initContainers:
+        {{- include "storscale.wait" (list . "openmetadata" (list "url" "http://openmetadata:8585/api/v1/system/version")) | nindent 8 }}
+        {{- include "storscale.wait" (list . "setup" (list "job" "setup-trino")) | nindent 8 }}
+      containers:
+        - name: sync
+          image: {{ include "storscale.image" (list . "catalogSync") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          env:
+            - {name: KEYCLOAK_DIRECT_URL, value: "http://keycloak:8080/sso"}
+            - {name: PIPELINES_URL, value: "{{ include "storscale.url" . }}/pipelines"}
+            - {name: OPERATOR_CLIENT_SECRET, valueFrom: {secretKeyRef: {name: storscale-env, key: OPERATOR_CLIENT_SECRET}}}
+            - {name: OPENMETADATA_TRINO_PASSWORD, valueFrom: {secretKeyRef: {name: storscale-env, key: OPENMETADATA_TRINO_PASSWORD}}}
+            - {name: STORE_ACCESS_KEY, valueFrom: {secretKeyRef: {name: storscale-env, key: PLATFORM_STORE_ACCESS_KEY}}}
+            - {name: STORE_SECRET_KEY, valueFrom: {secretKeyRef: {name: storscale-env, key: PLATFORM_STORE_SECRET_KEY}}}
+            - {name: STORSCALE_K8S, value: "true"}
+          readinessProbe:
+            exec: {command: ["test", "-s", "/catalog/token"]}
+            periodSeconds: 5
+          volumeMounts:
+            - {name: catalog, mountPath: /catalog}
+            - {name: tls, mountPath: /tls}
+            - {name: files-tools, mountPath: /tools}
+          {{- include "storscale.resources" (list "50m" "320Mi" "1Gi") | nindent 10 }}
+      volumes:
+        {{- include "storscale.filesVolume" (list . "tools" "tools") | nindent 8 }}
+        - {name: catalog, emptyDir: {}}
+        - {name: tls, secret: {secretName: trino-tls}}

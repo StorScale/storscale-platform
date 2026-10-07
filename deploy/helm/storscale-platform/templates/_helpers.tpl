@@ -1,3 +1,8 @@
+{{/* Every pod has enableServiceLinks: false. Kubernetes would otherwise give
+     each pod a variable per Service, such as SUPERSET_PORT=tcp://10.96.0.1:8088,
+     and some tools read those names as their own settings. The platform
+     reaches its services by name. */}}
+
 {{/* An image built from this repository. */}}
 {{- define "storscale.image" -}}
 {{- $root := index . 0 -}}{{- $name := index . 1 -}}

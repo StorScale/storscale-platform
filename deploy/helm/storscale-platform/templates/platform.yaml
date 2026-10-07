@@ -12,6 +12,7 @@ spec:
     metadata:
       labels: {{- include "storscale.selector" (list .Release.Name "platformd") | nindent 8 }}
     spec:
+      enableServiceLinks: false
       serviceAccountName: storscale
       initContainers:
         {{- include "storscale.wait" (list . "keycloak" (list "url" "http://keycloak:9000/health/ready")) | nindent 8 }}
@@ -67,6 +68,7 @@ spec:
     metadata:
       labels: {{- include "storscale.selector" (list .Release.Name "platform-operator") | nindent 8 }}
     spec:
+      enableServiceLinks: false
       serviceAccountName: storscale
       initContainers:
         {{- include "storscale.wait" (list . "setup" (list "job" "setup")) | nindent 8 }}
@@ -116,6 +118,7 @@ spec:
     metadata:
       labels: {{- include "storscale.selector" (list .Release.Name "semanticd") | nindent 8 }}
     spec:
+      enableServiceLinks: false
       serviceAccountName: storscale
       initContainers:
         {{- include "storscale.wait" (list . "keycloak" (list "url" "http://keycloak:9000/health/ready")) | nindent 8 }}

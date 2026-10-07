@@ -1,0 +1,71 @@
+# Superset: dashboards and SQL Lab, at the platform's /dashboards/. Its
+# metadata database, roles and the Trino database come first (superset-init).
+{{- define "storscale.superset.pod" -}}
+serviceAccountName: storscale
+containers:
+  - name: superset
+    image: {{ include "storscale.image" (list . "superset") }}
+    imagePullPolicy: {{ .Values.images.pullPolicy }}
+    {{- include "storscale.envFrom" . | nindent 4 }}
+    env:
+      - {name: SUPERSET_CONFIG_PATH, value: /app/pythonpath/superset_config.py}
+      - {name: SUPERSET_APP_ROOT, value: /dashboards}
+      - {name: STORSCALE_REVISION, value: {{ .Release.Revision | quote }}}
+    volumeMounts:
+      - {name: files-superset, mountPath: /app/pythonpath}
+      - {name: files-tools, mountPath: /tools}
+      - {name: tls, mountPath: /tls}
+volumes:
+  {{- include "storscale.filesVolume" (list . "superset" "superset") | nindent 2 }}
+  {{- include "storscale.filesVolume" (list . "tools" "tools") | nindent 2 }}
+  - {name: tls, secret: {secretName: trino-tls}}
+{{- end }}
+{{- $init := fromYaml (include "storscale.superset.pod" .) }}
+{{- $_ := set (index $init.containers 0) "command" (list "sh" "-c" "superset db upgrade && superset init && python /app/pythonpath/bootstrap.py && python /tools/k8s.py done superset-init") }}
+{{- $_ := set (index $init.containers 0) "resources" (dict "requests" (dict "cpu" "100m" "memory" "512Mi") "limits" (dict "memory" "1Gi")) }}
+{{- $_ := set $init "restartPolicy" "OnFailure" }}
+{{- $_ := set $init "enableServiceLinks" false }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: superset-init-{{ .Release.Revision }}
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 10
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {{- include "storscale.selector" (list .Release.Name "superset-init") | nindent 8 }}
+    spec: {{- toYaml $init | nindent 6 }}   # retried until its database is up
+---
+{{- $pod := fromYaml (include "storscale.superset.pod" .) }}
+{{- $c := index $pod.containers 0 }}
+{{- $_ := set $c "ports" (list (dict "name" "http" "containerPort" 8088)) }}
+{{- $_ := set $c "readinessProbe" (dict "httpGet" (dict "path" "/dashboards/health" "port" "http") "periodSeconds" 5 "failureThreshold" 60) }}
+{{- $_ := set $c "resources" (dict "requests" (dict "cpu" "100m" "memory" "512Mi") "limits" (dict "memory" "1Gi")) }}
+{{- $_ := set $pod "enableServiceLinks" false }}
+{{- $_ := set $pod "initContainers" (fromYamlArray (include "storscale.wait" (list . "setup" (list "job" "superset-init" "setup-trino")))) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: superset
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "storscale.selector" (list .Release.Name "superset") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "storscale.selector" (list .Release.Name "superset") | nindent 8 }}
+      annotations:
+        checksum/config: {{ include "storscale.filesConfigMap" (list . "superset" "superset") | sha256sum }}
+    spec: {{- toYaml $pod | nindent 6 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: superset
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "storscale.selector" (list .Release.Name "superset") | nindent 4 }}
+  ports:
+    - {name: http, port: 8088, targetPort: http}

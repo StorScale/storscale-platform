@@ -160,9 +160,10 @@ BASE_POLICIES = [
 ]
 
 
-def setup_ranger(policies):
+def setup_ranger(policies, keep=()):
     """The plugin's user, the Trino service, and exactly these policies, beside
-    the projects' (named project:..., which the platform operator keeps)."""
+    the projects' (named project:..., which the platform operator keeps) and
+    any whose names start with one of keep (a later step's)."""
     users = {u["name"] for u in ranger("GET", "/service/xusers/users?pageSize=1000")["vXUsers"]}
     if PLUGIN_USER not in users:
         ranger("POST", "/service/xusers/secure/users", json={
@@ -185,7 +186,7 @@ def setup_ranger(policies):
     existing = {p["name"]: p for p in ranger("GET", f"/service/public/v2/api/service/{RANGER_SERVICE}/policy")}
     wanted = {p["name"] for p in policies}
     for name, p in existing.items():  # Ranger's default policies, and any of ours since removed
-        if name not in wanted and not name.startswith("project:"):
+        if name not in wanted and not name.startswith(("project:", *keep)):
             ranger("DELETE", f"/service/public/v2/api/policy/{p['id']}")
     for p in policies:
         body = {"service": RANGER_SERVICE, "isEnabled": True, "policyType": 0, **p}
