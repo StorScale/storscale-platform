@@ -126,7 +126,10 @@ spec:
             failureThreshold: 60
           volumeMounts:
             - {name: files-ranger, mountPath: /home/ranger/scripts/create-ranger-services.py, subPath: create-ranger-services.py}
-          {{- include "storscale.resources" (list "100m" "640Mi" "1Gi") | nindent 10 }}
+          # Its 512 MB heap, the JVM's own memory, and the setup scripts it
+          # runs as it starts. A restart costs ten minutes: its start script
+          # waits out the mark the interrupted one left.
+          {{- include "storscale.resources" (list "100m" "768Mi" "1536Mi") | nindent 10 }}
       volumes:
         - {name: files-ranger, configMap: {name: files-ranger}}
         {{- include "storscale.filesVolume" (list . "tools" "tools") | nindent 8 }}

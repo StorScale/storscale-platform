@@ -20,8 +20,8 @@ Ranger
 
 Safe to run again: everything is created or updated in place.
 """
-from lakekit import (BASE_POLICIES, RANGER, allow, bucket_rw, env, keycloak_people, log, ranger, res, setup_buckets,
-                     setup_ranger, sync_people, wait_for)
+from lakekit import (BASE_POLICIES, RANGER, allow, bucket_rw, ensure_buckets_identity, env, keycloak_people, log,
+                     ranger, res, setup_buckets, setup_ranger, sync_people, wait_for)
 
 ICEBERG = "iceberg"
 CATALOG_USER = "openmetadata"  # the catalog's service user: it reads every table, to describe and check them
@@ -54,6 +54,7 @@ if __name__ == "__main__":
         accounts=[(env["TRINO_S3_ACCESS_KEY"], env["TRINO_S3_SECRET_KEY"], "lakehouse-engine"),
                   (env["NESSIE_S3_ACCESS_KEY"], env["NESSIE_S3_SECRET_KEY"], "lakehouse-engine"),
                   (env["PLATFORM_STORE_ACCESS_KEY"], env["PLATFORM_STORE_SECRET_KEY"], "platform-store")])
+    ensure_buckets_identity()
     wait_for("Ranger", f"{RANGER}/login.jsp")  # unauthenticated: five failed sign-ins lock Ranger's admin
     sync_people({**keycloak_people(), "service-account-airflow-pipelines": ["pipelines"]})
     if CATALOG_USER not in {u["name"] for u in ranger("GET", "/service/xusers/users?pageSize=1000")["vXUsers"]}:

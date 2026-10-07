@@ -67,6 +67,9 @@ if os.environ.get("STORSCALE_K8S") == "true":
     c.KubeSpawner.mem_limit = os.environ.get("NOTEBOOK_MEMORY", "1G")
     c.KubeSpawner.mem_guarantee = "256M"
     c.KubeSpawner.environment = NOTEBOOK_ENV
+    # KubeSpawner passes args only with a command of its own (otherwise it
+    # runs the image's and drops them): the CSP header lets the platform frame it.
+    c.KubeSpawner.cmd = ["start-singleuser.py"]   # the image's own start, with its hooks
     c.KubeSpawner.args = NOTEBOOK_ARGS
     c.KubeSpawner.uid = 1000
     c.KubeSpawner.fs_gid = 100

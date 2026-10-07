@@ -1,13 +1,16 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
+	"time"
 
 	platform "github.com/StorScale/storscale-platform"
 )
@@ -124,10 +127,13 @@ func (k *kube) up(st *stack) error {
 			return err
 		}
 	}
-	args := append([]string{"upgrade", "--install", release, chart, "--create-namespace", "--wait", "--timeout", "60m",
+	args := append([]string{"upgrade", "--install", release, chart, "--create-namespace", "--timeout", "10m",
 		"--set", "global.domain=" + st.setting("STORSCALE_DOMAIN")}, extra...)
 	if err := helm(args...); err != nil {
-		return fmt.Errorf("the platform didn't start: see `storscale status --k8s` and `storscale logs --k8s <service>` (%w)", err)
+		return err
+	}
+	if err := waitReady(60 * time.Minute); err != nil {
+		return fmt.Errorf("the platform didn't start: %w (see `storscale status --k8s` and `storscale logs --k8s <service>`)", err)
 	}
 	fmt.Println()
 	printURLs(st)
@@ -187,4 +193,125 @@ func (k *kube) do(cmd string, st *stack, args []string, volumes bool) error {
 		return helm("uninstall", release)
 	}
 	return fmt.Errorf("unknown command %q (see storscale help)", cmd)
+}
+
+// pod is what waitReady reads of a pod.
+type pod struct {
+	Metadata struct {
+		Name   string            `json:"name"`
+		Labels map[string]string `json:"labels"`
+	} `json:"metadata"`
+	Status struct {
+		Phase      string `json:"phase"`
+		Conditions []struct {
+			Type, Status string
+		} `json:"conditions"`
+		InitContainerStatuses []containerStatus `json:"initContainerStatuses"`
+		ContainerStatuses     []containerStatus `json:"containerStatuses"`
+	} `json:"status"`
+}
+
+type containerStatus struct {
+	Name         string `json:"name"`
+	Ready        bool   `json:"ready"`
+	RestartCount int    `json:"restartCount"`
+	State        struct {
+		Waiting *struct {
+			Reason string `json:"reason"`
+		} `json:"waiting"`
+		Running    *struct{} `json:"running"`
+		Terminated *struct {
+			ExitCode int `json:"exitCode"`
+		} `json:"terminated"`
+	} `json:"state"`
+}
+
+// why says what a pod that isn't ready is doing: waiting for a setup step
+// or a service (its init container "wait-<what>"), pulling its image, or
+// failing. stuck: it won't get better by waiting.
+func (p *pod) why() (string, bool) {
+	for _, c := range p.Status.InitContainerStatuses {
+		if c.State.Terminated != nil && c.State.Terminated.ExitCode == 0 {
+			continue
+		}
+		if w := c.State.Waiting; w != nil && w.Reason != "PodInitializing" {
+			return c.Name + ": " + w.Reason, stuckReason(w.Reason, c.RestartCount)
+		}
+		return strings.TrimPrefix(c.Name, "wait-") + " first", false
+	}
+	for _, c := range p.Status.ContainerStatuses {
+		if c.Ready {
+			continue
+		}
+		if w := c.State.Waiting; w != nil {
+			return fmt.Sprintf("%s (%d restarts)", w.Reason, c.RestartCount), stuckReason(w.Reason, c.RestartCount)
+		}
+		if c.RestartCount > 0 {
+			return fmt.Sprintf("starting (%d restarts)", c.RestartCount), false
+		}
+		return "starting", false
+	}
+	return strings.ToLower(p.Status.Phase), false
+}
+
+func stuckReason(reason string, restarts int) bool {
+	switch reason {
+	case "ErrImagePull", "ImagePullBackOff", "InvalidImageName", "CreateContainerConfigError":
+		return true
+	case "CrashLoopBackOff":
+		return restarts >= 6
+	}
+	return false
+}
+
+// waitReady waits for every pod of the platform to be ready, saying every
+// half minute which aren't and why, and gives up early on one that is stuck
+// (its image can't be pulled, or it keeps crashing), with its logs.
+func waitReady(limit time.Duration) error {
+	deadline := time.Now().Add(limit)
+	stuckSince := map[string]time.Time{}
+	for {
+		out, err := exec.Command("kubectl", "--context", kubeContext, "-n", namespace, "get", "pods", "-o", "json").Output()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "reading the pods:", err)
+		} else {
+			var list struct{ Items []pod }
+			json.Unmarshal(out, &list)
+			var waiting []string
+			for _, p := range list.Items {
+				_, job := p.Metadata.Labels["job-name"]
+				if p.Status.Phase == "Succeeded" || (job && p.Status.Phase == "Failed") || strings.HasPrefix(p.Metadata.Name, "storscale-test") {
+					continue // a finished setup step, a failed try of one (it's tried again), or a test
+				}
+				ready := false
+				for _, c := range p.Status.Conditions {
+					ready = ready || (c.Type == "Ready" && c.Status == "True")
+				}
+				if ready {
+					delete(stuckSince, p.Metadata.Name)
+					continue
+				}
+				why, stuck := p.why()
+				waiting = append(waiting, p.Metadata.Name+" ("+why+")")
+				if !stuck {
+					delete(stuckSince, p.Metadata.Name)
+				} else if since, ok := stuckSince[p.Metadata.Name]; !ok {
+					stuckSince[p.Metadata.Name] = time.Now()
+				} else if time.Since(since) > 5*time.Minute {
+					kubectl("logs", p.Metadata.Name, "--all-containers", "--tail", "40")
+					return fmt.Errorf("%s is stuck: %s", p.Metadata.Name, why)
+				}
+			}
+			if len(list.Items) > 0 && len(waiting) == 0 {
+				fmt.Println("every service is ready")
+				return nil
+			}
+			sort.Strings(waiting)
+			fmt.Printf("%s  waiting for %d: %s\n", time.Now().Format("15:04:05"), len(waiting), strings.Join(waiting, ", "))
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("not ready after %s", limit)
+		}
+		time.Sleep(30 * time.Second)
+	}
 }

@@ -38,6 +38,11 @@ All notable changes to StorScale Platform are recorded here, in the [Keep a Chan
   - Ranger's admin server runs with a 512 MB heap instead of the 1 GB its start script pins.
   - Trino gets 1.5 GB instead of 2 GB, a heap of about 1.2 GB, and at most 512 MB for a query. The kernel had been stopping it when the VM ran short.
   - The browser suite waits for the pipeline run it starts to finish, so it never overlaps another suite's run.
+- **Kubernetes, from CI's first full run:**
+  - **People could get no Buckets credentials from a Keycloak token** when Buckets started before Keycloak: it reads Keycloak's OpenID configuration only as it starts. The first setup step now checks, and restarts Buckets' server if needed.
+  - **Ranger's admin server gets 1.5 GiB.** At 1 GiB it was restarted, and each restart cost ten minutes, while its start script waited out the mark the interrupted one left.
+  - **Notebooks may be shown in the platform's frame.** KubeSpawner dropped the setting that allows it, because no command was given.
+  - **`storscale up --k8s` says what it's waiting for** every half minute: a setup step, an image, a crash. It stops early when a pod is stuck. Before, it waited in silence.
 - **A first install on Kubernetes no longer times out.** Services wait for the setup steps, which wait for Keycloak, Buckets, Ranger and Trino, and with every image still to pull that takes longer than Kubernetes' default 10 minutes for a Deployment to become ready. The chart's Deployments now get an hour (`progressDeadlineSeconds`), and `storscale up --k8s` waits up to an hour.
 - **Signing out always ends the Keycloak session.** A request still in flight when the platform's session ended (Home loads each project's tables, metrics and pipelines) came back 401, and the app's "sign in again" could beat the browser to Keycloak's logout, which signed the person straight back in.
 - **The lakehouse setup step keeps Superset's Ranger policies.** It used to remove them, until the next step put them back, so every upgrade broke Superset's queries for about a minute.
