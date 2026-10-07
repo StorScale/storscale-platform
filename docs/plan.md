@@ -167,6 +167,12 @@ People define what the business means once: entities (customer, order), dimensio
 - **Also served by the semantic layer:** Superset datasets from the metrics, so dashboards and agents agree, and `query_metrics` from notebooks (a Python client).
 
 
+
+**Phase 4 delivered (2026-10-07)** the definitions, the compiling, agent access and the audit:
+- **Where the models live:** in the project store, not yet in each project's Git repo.
+- **How queries run:** `semanticd` forwards the caller's Keycloak token to Trino, so their access rules apply. The agent client's tokens carry both audiences, the MCP server's and Trino's. Keycloak's token exchange would be cleaner, and comes later.
+- **Still to come:** Superset datasets from the metrics, a Python client for notebooks, and `search_catalog`.
+
 ## Decisions (2026-10-06)
 
 1. **Repo and license:** `StorScale/storscale-platform`, AGPL-3.0. Buckets is a dependency (its images, chart and operator), not vendored code.

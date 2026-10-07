@@ -68,6 +68,10 @@ func newFakeKeycloak(t *testing.T) *fakeKeycloak {
 }
 
 func newTestServer(t *testing.T, k *fakeKeycloak) *httptest.Server {
+	return newTestServerWith(t, k, func(*config) {})
+}
+
+func newTestServerWith(t *testing.T, k *fakeKeycloak, change func(*config)) *httptest.Server {
 	web := t.TempDir()
 	os.WriteFile(filepath.Join(web, "index.html"), []byte("<!doctype html><title>StorScale Platform</title>"), 0o644)
 	cfg := config{
@@ -75,6 +79,7 @@ func newTestServer(t *testing.T, k *fakeKeycloak) *httptest.Server {
 		KeycloakDirectURL: k.URL, Realm: "lakehouse", ClientID: "platform", ClientSecret: "s3cret",
 		Groups: []string{"analysts", "engineers"}, AdminGroups: []string{"engineers"}, WebDir: web,
 	}
+	change(&cfg)
 	s, err := newServer(context.Background(), cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
@@ -273,5 +278,42 @@ func TestToolsFollowThePlatformsAddress(t *testing.T) {
 	if tools[0].URL != "https://data.example.com/notebooks/hub/" || tools[1].EmbedURL != "https://data.example.com/dashboards/login/keycloak?next=%2Fdashboards%2Fsqllab%2F" ||
 		tools[4].URL != "https://catalog.data.example.com/_storscale/launch.html" {
 		t.Errorf("tools: %+v", tools[:2])
+	}
+}
+
+func TestSemanticRequestsGoAsThePerson(t *testing.T) {
+	var got []string
+	semanticd := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.Method+" "+r.URL.Path+" "+r.Header.Get("Authorization"))
+		w.Write([]byte(`{"metrics": []}`))
+	}))
+	defer semanticd.Close()
+	k := newFakeKeycloak(t)
+	ts := newTestServerWith(t, k, func(c *config) { c.SemanticURL = semanticd.URL })
+	c, _ := signIn(t, ts, k, map[string]any{"preferred_username": "alice", "groups": []string{"analysts"}}, "/")
+	call := func(method, path string, header bool) int {
+		req, _ := http.NewRequest(method, ts.URL+path, strings.NewReader(`{}`))
+		req.AddCookie(c)
+		if header {
+			req.Header.Set("X-Platform-Request", "1")
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.StatusCode
+	}
+	if code := call("GET", "/api/projects/sales/semantic", false); code != http.StatusOK {
+		t.Fatalf("GET: %d", code)
+	}
+	if code := call("PUT", "/api/projects/sales/semantic", false); code != http.StatusForbidden {
+		t.Errorf("PUT without X-Platform-Request: %d, want 403", code)
+	}
+	if code := call("POST", "/api/projects/sales/semantic/query", true); code != http.StatusOK {
+		t.Errorf("POST query: %d", code)
+	}
+	want := []string{"GET /api/projects/sales/semantic Bearer at", "POST /api/projects/sales/semantic/query Bearer at"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("semanticd got %q, want %q: the person's own access token", got, want)
 	}
 }

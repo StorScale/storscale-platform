@@ -33,7 +33,8 @@ const (
 // restarts, people sign in again, which Keycloak's own session makes silent.
 type session struct {
 	User    user
-	IDToken string // for Keycloak's logout (id_token_hint)
+	IDToken string        // for Keycloak's logout (id_token_hint)
+	Token   *oauth2.Token // their access token (refreshed as needed), for calls made as them
 	Expires time.Time
 }
 
@@ -117,6 +118,9 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("DELETE /api/projects/{name}", s.handleDeleteProject)
 	mux.HandleFunc("GET /api/access", s.handleAccess)
 	mux.HandleFunc("GET /api/projects/{name}/flow", s.handleFlow)
+	mux.HandleFunc("GET /api/projects/{name}/semantic", s.handleSemantic)
+	mux.HandleFunc("PUT /api/projects/{name}/semantic", s.handleSemantic)
+	mux.HandleFunc("POST /api/projects/{name}/semantic/query", s.handleSemantic)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	})
@@ -175,7 +179,8 @@ func (s *server) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	sid := token()
 	s.mu.Lock()
-	s.sessions[sid] = &session{User: user{claims.Username, claims.Name, claims.Email, claims.Groups}, IDToken: raw, Expires: s.now().Add(sessionTTL)}
+	s.sessions[sid] = &session{User: user{claims.Username, claims.Name, claims.Email, claims.Groups}, IDToken: raw, Token: tok,
+		Expires: s.now().Add(sessionTTL)}
 	s.mu.Unlock()
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: sid, Path: "/", HttpOnly: true, Secure: s.secure,
 		SameSite: http.SameSiteLaxMode, MaxAge: int(sessionTTL.Seconds())})
@@ -196,7 +201,7 @@ func (s *server) handleSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"user": sess.User, "tools": toolsFor(s.cfg.PlatformURL, sess.User.Groups, s.cfg.AdminGroups),
-		"admin": s.isAdmin(sess.User), "projects": s.store != nil, "flow": s.catalog != nil})
+		"admin": s.isAdmin(sess.User), "projects": s.store != nil, "flow": s.catalog != nil, "semantic": s.cfg.SemanticURL != ""})
 }
 
 // handleLogout ends the platform's session and returns Keycloak's logout

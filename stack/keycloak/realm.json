@@ -119,6 +119,16 @@
             "id.token.claim": "true",
             "userinfo.token.claim": "true"
           }
+        },
+        {
+          "name": "audience: lakehouse",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "included.client.audience": "lakehouse"
+          }
         }
       ],
       "attributes": {
@@ -377,6 +387,57 @@
       "attributes": {
         "post.logout.redirect.uris": "http://catalog.${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}/*"
       }
+    },
+    {
+      "clientId": "storscale-agent",
+      "name": "Agents (MCP clients: Claude, IDEs, scripts)",
+      "description": "A public client for agents that use the platform's metrics over MCP, as the person who signs in.",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": [
+        "http://localhost:*",
+        "http://127.0.0.1:*",
+        "https://claude.ai/api/mcp/auth_callback"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "audience: lakehouse (Trino)",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "included.client.audience": "lakehouse"
+          }
+        },
+        {
+          "name": "audience: the MCP server",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "included.custom.audience": "http://${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}/mcp"
+          }
+        }
+      ]
     }
   ],
   "components": {

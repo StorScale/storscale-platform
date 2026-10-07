@@ -144,3 +144,10 @@ textarea { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monosp
 .flow-label { position: absolute; transform: translate(-50%, -50%); z-index: 2; font-size: 12px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--accent); color: var(--accent); background: var(--panel); }
 .flow-label.selected { background: var(--accent); color: var(--accent-fg); }
 tr.selected td { background: rgba(10, 102, 209, 0.08); }
+
+/* The semantic layer */
+.ask { margin-top: 12px; }
+.ask .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.ask label.check { display: inline-flex; gap: 4px; align-items: center; margin: 0; }
+.ask table { margin-top: 8px; }
+pre.sql { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; overflow: auto; font-size: 12px; margin: 8px 0 0; }

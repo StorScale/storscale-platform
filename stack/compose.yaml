@@ -11,6 +11,7 @@
 #   http://storscale.localhost:8800/dashboards/   Superset
 #   http://storscale.localhost:8800/pipelines/    Airflow
 #   http://storscale.localhost:8800/monitoring/   Grafana
+#   http://storscale.localhost:8800/mcp           the MCP server: agents use the projects' metrics
 #
 # The tools that open in a tab of their own have names of their own:
 #
@@ -233,12 +234,36 @@ services:
       STORE_SECRET_KEY: ${PLATFORM_STORE_SECRET_KEY}
       # The catalog, for each project's Flow view, read with the token catalog-sync shares.
       CATALOG_URL: http://openmetadata:8585
+      # The semantic layer, which platformd calls with the signed-in person's token.
+      SEMANTIC_URL: http://semanticd:8000
     volumes:
       - catalog:/catalog:ro
     depends_on:
       keycloak: {condition: service_healthy}
     healthcheck:
       test: ["CMD", "/usr/bin/platformd", "healthcheck"]
+      interval: 5s
+      retries: 60
+
+  # The semantic layer: projects' metrics (MetricFlow), run as whoever asks,
+  # and the MCP server agents use them through (http://.../mcp).
+  semanticd:
+    restart: unless-stopped
+    build: ./semantic
+    image: storscale-semanticd
+    environment:
+      KEYCLOAK_URL: http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}/sso
+      KEYCLOAK_DIRECT_URL: http://keycloak:8080/sso
+      MCP_URL: http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}/mcp
+      STORE_ACCESS_KEY: ${PLATFORM_STORE_ACCESS_KEY}
+      STORE_SECRET_KEY: ${PLATFORM_STORE_SECRET_KEY}
+    volumes:
+      - tls:/tls:ro
+    depends_on:
+      keycloak: {condition: service_healthy}
+      tls: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
       interval: 5s
       retries: 60
 

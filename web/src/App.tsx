@@ -3,6 +3,7 @@ import { NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { session, Session, signIn, signOut, Tool, User } from "./api";
 import Access from "./pages/Access";
 import Flow from "./pages/Flow";
+import Semantic from "./pages/Semantic";
 import Home from "./pages/Home";
 import ProjectDetail from "./pages/ProjectDetail";
 import ProjectEditor from "./pages/ProjectEditor";
@@ -67,6 +68,7 @@ function Shell({ user, tools, admin, projects }: { user: User; tools: Tool[]; ad
           <Route path="/projects/:name" element={<ProjectDetail admin={admin} />} />
           <Route path="/projects/:name/edit" element={<ProjectEditor />} />
           <Route path="/projects/:name/flow" element={<Flow />} />
+          <Route path="/projects/:name/semantic" element={<Semantic />} />
           <Route path="/access" element={<Access />} />
           <Route path="*" element={<p>Page not found.</p>} />
         </Routes>

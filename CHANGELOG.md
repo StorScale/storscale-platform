@@ -7,6 +7,17 @@ All notable changes to StorScale Platform are recorded here, in the [Keep a Chan
 ### Added
 - The plan: a semantic layer that agents can use (phase 4). MetricFlow holds the definitions, there's an editor in the shell, and an MCP server lets agents query as the person or service account asking, under Ranger's rules.
 - The plan: [docs/plan.md](docs/plan.md). It covers the architecture, the `Project` object, a map of Dataiku's features onto open-source tools, the phases and the decisions.
+- **Phase 4:** a semantic layer that agents can use.
+  - **`semanticd`:** holds each project's metrics, written in MetricFlow's YAML (0.213, as a library, without dbt). It compiles requests to Trino SQL and runs them as whoever asked, so Ranger's row filters and masks apply to agents as to people. Ranger's audit log names both the agent and the person.
+  - **An MCP server at `/mcp`** for agents. It's an OAuth resource server with Keycloak as the authorization server, signed in through the client `storscale-agent`. Its tools are `list_projects`, `list_metrics`, `query_metrics` and `explain_query`.
+  - **The Semantic layer page:** a project's metrics, a way to ask for them, how to connect an agent, and the YAML, which editors change and which is checked before it's saved.
+  - **The `sales` project's model:** revenue, order count, customer count and average order value, by region, customer, card number or date.
+  - **The `semantic` suite:**
+    - The MCP server refuses requests without the right token.
+    - alice's agent gets EU revenue only, and masked card numbers.
+    - carol's agent gets nothing.
+    - bob's change to revenue shows up in alice's agent's next answer, and alice can't make changes.
+    - Ranger's audit log names both alice and the agent.
 - **Phase 3:** the catalog, lineage and data quality.
   - **OpenMetadata 2.0.4** as the catalog. It signs people in with Keycloak, and someone signed in to the platform needs no second password. It's trimmed to fit: no Airflow of its own, OpenSearch with no plugins and a small heap, and its own small Postgres.
   - **`catalog-sync`** ingests Trino's tables into the catalog and runs each project's data-quality checks as OpenMetadata tests.

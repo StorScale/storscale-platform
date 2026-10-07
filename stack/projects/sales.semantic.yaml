@@ -1,0 +1,43 @@
+# The sales project's semantic model: MetricFlow's YAML. People, dashboards and
+# agents ask for these metrics, grouped by these dimensions; the platform turns
+# each request into SQL and runs it as whoever asked.
+semantic_model:
+  name: orders
+  description: Every order, one row each.
+  node_relation: {database: iceberg, schema_name: sales, alias: orders}
+  defaults: {agg_time_dimension: order_date}
+  entities:
+    - {name: order, type: primary, expr: id}
+  dimensions:
+    - {name: region, type: categorical, description: "EU, US or APAC"}
+    - {name: customer, type: categorical}
+    - {name: card_number, type: categorical, description: The card the order was paid with}
+    - {name: order_date, type: time, type_params: {time_granularity: day}}
+  measures:
+    - {name: amount_sum, expr: amount, agg: sum, description: The orders' amounts}
+    - {name: orders, expr: "1", agg: sum}
+    - {name: customers, expr: customer, agg: count_distinct}
+---
+metric:
+  name: revenue
+  description: The orders' total amount.
+  type: simple
+  type_params: {measure: amount_sum}
+---
+metric:
+  name: order_count
+  description: How many orders there were.
+  type: simple
+  type_params: {measure: orders}
+---
+metric:
+  name: customer_count
+  description: How many different customers ordered.
+  type: simple
+  type_params: {measure: customers}
+---
+metric:
+  name: average_order_value
+  description: Revenue per order.
+  type: ratio
+  type_params: {numerator: {name: revenue}, denominator: {name: order_count}}

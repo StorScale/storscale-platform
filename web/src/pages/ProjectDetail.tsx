@@ -70,6 +70,7 @@ export default function ProjectDetail({ admin }: { admin: boolean }) {
       <div className="page-head">
         <h1>{name} <Phase v={v} /></h1>
         {spec?.tables && <Link className="button" to={`/projects/${name}/flow`} data-testid="flow-link">Flow</Link>}
+        {spec?.tables && <Link className="button" to={`/projects/${name}/semantic`} data-testid="semantic-link">Semantic layer</Link>}
         {admin && spec && (
           <div className="actions">
             <Link className="button" to={`/projects/${name}/edit`} data-testid="edit-project">Edit</Link>

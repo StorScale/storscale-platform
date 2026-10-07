@@ -12,7 +12,7 @@ export type Tool = {
 };
 
 export type Session =
-  | { state: "signed-in"; user: User; tools: Tool[]; admin: boolean; projects: boolean; flow: boolean }
+  | { state: "signed-in"; user: User; tools: Tool[]; admin: boolean; projects: boolean; flow: boolean; semantic: boolean }
   | { state: "refused"; user: User; error: string };
 
 // session is null when nobody is signed in.
@@ -22,7 +22,7 @@ export async function session(): Promise<Session | null> {
   const body = await res.json();
   if (res.status === 403) return { state: "refused", user: body.user, error: body.error };
   if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
-  return { state: "signed-in", user: body.user, tools: body.tools, admin: !!body.admin, projects: !!body.projects, flow: !!body.flow };
+  return { state: "signed-in", user: body.user, tools: body.tools, admin: !!body.admin, projects: !!body.projects, flow: !!body.flow, semantic: !!body.semantic };
 }
 
 export function signIn() {
@@ -101,3 +101,13 @@ export type FlowTable = { name: string; fqn: string; columns: string[]; checks: 
 export type FlowEdge = { from: string; to: string; pipeline?: string; columns: { from: string[]; to: string }[] };
 export type Flow = { tables: FlowTable[]; edges: FlowEdge[] };
 export const getFlow = (name: string) => api<Flow>("GET", `/api/projects/${encodeURIComponent(name)}/flow`);
+
+// --- A project's semantic layer (semanticd, through platformd) ----------------------
+
+export type SemanticMetric = { name: string; description: string; type: string; dimensions: string[] };
+export type SemanticModel = { project: string; yaml: string; metrics: SemanticMetric[]; tables: string[]; error?: string };
+export type MetricQuery = { metrics: string[]; group_by?: string[]; where?: string[]; order_by?: string[]; limit?: number; explain?: boolean };
+export type MetricAnswer = { project: string; sql: string; columns?: string[]; rows?: unknown[][] };
+export const getSemantic = (name: string) => api<SemanticModel>("GET", `/api/projects/${encodeURIComponent(name)}/semantic`);
+export const putSemantic = (name: string, yaml: string) => api<SemanticModel>("PUT", `/api/projects/${encodeURIComponent(name)}/semantic`, { yaml });
+export const queryMetrics = (name: string, q: MetricQuery) => api<MetricAnswer>("POST", `/api/projects/${encodeURIComponent(name)}/semantic/query`, q);

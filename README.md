@@ -16,6 +16,7 @@ People sign in once to one place. They work in **projects**: a project brings to
 > - **One web app** with one sign-in. Notebooks, SQL, dashboards, pipelines and monitoring open inside it.
 > - **Projects:** an administrator defines a project, and the platform applies its access in Keycloak, Ranger, Buckets and Nessie.
 > - **A catalog:** OpenMetadata, with each project's lineage (column by column) and data-quality checks. Each project has a Flow view.
+> - **A semantic layer that agents can use:** each project's metrics are defined once (MetricFlow). Agents use them over MCP at `/mcp`, signed in through Keycloak as the person they work for, under that person's access rules.
 
 ## Try it
 

@@ -63,6 +63,10 @@ if __name__ == "__main__":
     orders.to_parquet(buf, index=False)
     s3_root().put_object(Bucket="sales", Key="datasets/orders.parquet", Body=buf.getvalue())
     log("Buckets: sales/datasets/orders.parquet (6 orders)")
+    # The project's semantic model: its metrics, for people and agents.
+    with open("/projects/sales.semantic.yaml") as f:
+        s3_root().put_object(Bucket=STORE, Key="semantic/sales.yaml", Body=f.read().encode(), ContentType="application/yaml")
+    log("semantic layer: the sales project's metrics (projects/sales.semantic.yaml)")
     # The table the sales pipeline rebuilds, by region (it may change rows,
     # not make tables).
     from lakekit import sql

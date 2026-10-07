@@ -17,6 +17,7 @@ This directory is StorScale Platform on one machine: a Docker Compose project. `
 | `prometheus`, `grafana` | Monitoring; Grafana signs people in with Keycloak | `/monitoring/` |
 | `openmetadata` (with `openmetadata-db`, `openmetadata-search`) | The catalog: tables, lineage, data quality; signs people in with Keycloak | `catalog.` |
 | `catalog-sync` | Keeps the catalog in step: Trino's tables, the projects' checks | |
+| `semanticd` | The semantic layer (MetricFlow) and the MCP server for agents | `/mcp` |
 | `setup`, `setup-trino` | One-off configuration, safe to run again | |
 
 ## One address
@@ -86,6 +87,17 @@ Each pipeline registers itself in the catalog before it reports, because OpenMet
 
 **Signing in to OpenMetadata.** Its sign-in uses the person's Keycloak session, the same way the other tools' do. That needs `OIDC_MAX_AGE`, because by default it demands a fresh password; OpenMetadata copies the setting into its database on first start. Its web app keeps its token in a service worker, so the platform opens the catalog in its own tab through `catalog.storscale.localhost:8800/_storscale/launch.html`. That page starts the worker before signing in.
 
+
+## The semantic layer, and agents
+
+Each project can have a semantic model, kept in the project store as `semantic/<project>.yaml`; [projects/sales.semantic.yaml](projects/sales.semantic.yaml) is one. It's written in MetricFlow's YAML: semantic models over the project's tables, and the metrics made from them.
+
+- **Editing:** a project's editors change the model in its Semantic layer page. `semanticd` compiles it with MetricFlow, without dbt, and refuses what doesn't compile, saying why.
+- **Querying:** people (in the platform) and agents (over MCP) ask for metrics by name. `semanticd` compiles each request to Trino SQL and runs it **as whoever asked**, with their own Keycloak token. Ranger's policies, row filters and masks therefore apply to an agent exactly as to the person it works for.
+- **Auditing:** each query starts with a comment naming the agent (the token's client) and the person, and Ranger's audit log keeps it.
+- **Agents' access:** agents connect to `http://storscale.localhost:8800/mcp`, an OAuth resource server whose metadata names Keycloak. They sign in through Keycloak's client `storscale-agent`, as the person using them. That client's tokens are for both the MCP server and Trino.
+  - The tools are `list_projects`, `list_metrics`, `query_metrics` and `explain_query`.
+  - In Claude Code: `claude mcp add --transport http storscale http://storscale.localhost:8800/mcp`.
 
 ## Memory
 

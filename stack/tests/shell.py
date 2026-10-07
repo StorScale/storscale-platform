@@ -183,6 +183,11 @@ def run(browser, switch=True):
     check("bob opens the sales project and sees its members", "alice" in members and "reader" in members and "editor" in members,
           " ".join(members.split())[:120])
     check("... with what each role gets", "Read orders in iceberg.sales" in page.inner_text("main"), "")
+    press(page, "[data-testid=semantic-link]")
+    page.wait_for_selector("[data-testid=metrics]", timeout=60_000)
+    metrics = page.inner_text("[data-testid=metrics]")
+    check("... and its semantic layer: the metrics, editable by bob", "revenue" in metrics and "order_count" in metrics
+          and page.get_attribute("[data-testid=semantic-yaml]", "readonly") is None, " ".join(metrics.split())[:80])
     press(page, "[data-testid=nav-access]")
     page.wait_for_selector("[data-testid=access]", timeout=30_000)
     access = page.inner_text("[data-testid=access]")

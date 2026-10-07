@@ -28,6 +28,14 @@ http://{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
 	handle /sso/* {
 		reverse_proxy keycloak:8080
 	}
+	# The MCP server, and its OAuth metadata (which names Keycloak as the
+	# authorization server), for agents.
+	handle /mcp* {
+		reverse_proxy semanticd:8000
+	}
+	handle /.well-known/oauth-protected-resource* {
+		reverse_proxy semanticd:8000
+	}
 	handle /notebooks/* {
 		import tool jupyterhub:8000
 	}
