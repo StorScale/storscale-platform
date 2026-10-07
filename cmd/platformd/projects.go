@@ -1,12 +1,14 @@
 package main
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"slices"
 	"sort"
 
 	"github.com/StorScale/storscale-platform/internal/project"
+	"github.com/StorScale/storscale-platform/internal/store"
 )
 
 // A projectView is a project as the web app shows it: its spec, what the
@@ -148,6 +150,12 @@ func (s *server) handlePutProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.store.PutProject(r.Context(), p); err != nil {
+		var refused *store.APIError
+		if errors.As(err, &refused) && refused.Code >= 400 && refused.Code < 500 && refused.Code != http.StatusForbidden {
+			// Kubernetes checked the project against its schema (deploy/crds/project.yaml).
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": refused.Message})
+			return
+		}
 		s.log.Error("saving a project", "project", p.Metadata.Name, "error", err)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "the project store isn't answering"})
 		return

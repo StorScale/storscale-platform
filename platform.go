@@ -1,5 +1,6 @@
 // Package platform holds what the storscale command ships: the platform's
-// stack (stack/, run with Docker Compose) and its version.
+// stack (stack/, run with Docker Compose), what runs it on kind (deploy/kind),
+// and its version.
 package platform
 
 import (
@@ -12,6 +13,12 @@ import (
 //
 //go:embed stack stack/.env
 var Stack embed.FS
+
+// Kind is deploy/kind: the kind cluster's configuration, and the script
+// that makes the platform's names resolve to its gateway inside it.
+//
+//go:embed deploy/kind
+var Kind embed.FS
 
 //go:embed VERSION
 var version string

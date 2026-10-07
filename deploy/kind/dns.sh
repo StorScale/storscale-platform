@@ -7,8 +7,10 @@
 #   deploy/kind/dns.sh [domain] [namespace]     (default: storscale.localhost storscale)
 #
 # Adds one rewrite rule to CoreDNS: <domain> and *.<domain> are answered as
-# gateway.<namespace>.svc.cluster.local. Safe to run again.
+# gateway.<namespace>.svc.cluster.local. Safe to run again. KUBECTL_CONTEXT:
+# the cluster's kubectl context (default: the current one).
 set -euo pipefail
+kubectl() { command kubectl ${KUBECTL_CONTEXT:+--context "$KUBECTL_CONTEXT"} "$@"; }
 domain=${1:-storscale.localhost}
 ns=${2:-storscale}
 re=$(printf '%s' "$domain" | sed 's/\./\\\\./g')

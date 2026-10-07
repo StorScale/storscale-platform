@@ -21,15 +21,41 @@ def in_cluster():
     return os.environ.get("STORSCALE_K8S") == "true" and os.path.exists(f"{SA}/token")
 
 
-def _api(method, path, **kw):
+def _api(method, path, api="api/v1", **kw):
     host = os.environ["KUBERNETES_SERVICE_HOST"]
     port = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
     with open(f"{SA}/token") as f:
         token = f.read().strip()
     with open(f"{SA}/namespace") as f:
         ns = f.read().strip()
-    return requests.request(method, f"https://{host}:{port}/api/v1/namespaces/{ns}/{path}",
+    return requests.request(method, f"https://{host}:{port}/{api}/namespaces/{ns}/{path}",
                             headers={"Authorization": f"Bearer {token}"}, verify=f"{SA}/ca.crt", timeout=30, **kw)
+
+
+PROJECTS = "apis/platform.storscale.io/v1alpha1"
+FINALIZER = "platform.storscale.io/undo"   # the operator undoes a deleted project, then lets it go
+
+
+def put_project(p):
+    """Create or change a Project resource, as platformd does (with the
+    operator's finalizer): p is a project as projects/*.json has it."""
+    name = p["metadata"]["name"]
+    for _ in range(3):
+        r = _api("GET", f"projects/{name}", api=PROJECTS)
+        body = {"apiVersion": p["apiVersion"], "kind": "Project", "spec": p["spec"],
+                "metadata": {"name": name, "finalizers": [FINALIZER]}}
+        if r.status_code == 404:
+            r = _api("POST", "projects", api=PROJECTS, json=body)
+        else:
+            r.raise_for_status()
+            md = r.json()["metadata"]
+            body["metadata"].update(resourceVersion=md["resourceVersion"],
+                                    finalizers=sorted(set(md.get("finalizers", [])) | {FINALIZER}))
+            r = _api("PUT", f"projects/{name}", api=PROJECTS, json=body)
+        if r.status_code != 409:   # 409: changed since it was read; read it again
+            r.raise_for_status()
+            return
+    r.raise_for_status()
 
 
 def _put(kind, name, body):

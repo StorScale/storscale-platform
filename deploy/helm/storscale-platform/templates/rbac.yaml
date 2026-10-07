@@ -1,6 +1,7 @@
 # The platform's own pods: setup steps write a few Secrets (the catalog's bot
 # token, Prometheus' Buckets token) and mark themselves finished; services
-# wait for them. Nothing outside the release's namespace.
+# wait for them; platformd and the operator keep the projects (Project
+# resources). Nothing outside the release's namespace.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -16,6 +17,12 @@ rules:
   - apiGroups: [""]
     resources: [secrets, configmaps]
     verbs: [get, list, create, update]
+  - apiGroups: [platform.storscale.io]
+    resources: [projects]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [platform.storscale.io]
+    resources: [projects/status, projects/finalizers]
+    verbs: [get, update, patch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

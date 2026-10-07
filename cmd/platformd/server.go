@@ -59,7 +59,7 @@ type server struct {
 	verifier *oidc.IDTokenVerifier
 	secure   bool // cookies only over HTTPS
 	now      func() time.Time
-	store    *store.Store      // nil: no projects
+	store    store.Store       // nil: no projects
 	catalog  *catalog.Client   // nil: no Flow view
 	airflow  *pipelines.Client // nil: no pipelines
 
@@ -95,8 +95,8 @@ func newServer(ctx context.Context, cfg config, log *slog.Logger) (*server, erro
 		sessions: map[string]*session{},
 		logins:   map[string]*login{},
 	}
-	if cfg.StoreURL != "" {
-		if s.store, err = store.New(cfg.StoreURL, cfg.StoreAccessKey, cfg.StoreSecretKey, cfg.StoreBucket); err != nil {
+	if cfg.StoreURL != "" || cfg.ProjectStore == "kubernetes" {
+		if s.store, err = store.Open(cfg.ProjectStore, cfg.StoreURL, cfg.StoreAccessKey, cfg.StoreSecretKey, cfg.StoreBucket); err != nil {
 			return nil, err
 		}
 	}

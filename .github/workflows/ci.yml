@@ -55,3 +55,32 @@ jobs:
         run: |
           bin/storscale status --dir stack
           docker compose --project-name storscale logs --no-color --tail 200
+
+  # The platform on Kubernetes: the Helm chart on kind, as `storscale up --k8s`
+  # installs it, and every suite of checks (helm test).
+  kubernetes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: azure/setup-helm@v4
+      - uses: helm/kind-action@v1
+        with:
+          install_only: true   # storscale makes the cluster (deploy/kind/cluster.yaml)
+      - name: Room for the images
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+      - run: go build -o bin/storscale ./cmd/storscale
+      # --dir stack: this checkout's images and chart
+      - run: bin/storscale up --dir stack --k8s
+      - run: bin/storscale test --dir stack --k8s
+      - name: What went wrong
+        if: failure()
+        run: |
+          kubectl --context kind-storscale -n storscale get pods,jobs,projects -o wide
+          kubectl --context kind-storscale -n storscale get events --sort-by=.lastTimestamp | tail -40
+          for p in $(kubectl --context kind-storscale -n storscale get pods -o name); do
+            echo "=== $p"; kubectl --context kind-storscale -n storscale logs "$p" --all-containers --tail 60 || true
+          done

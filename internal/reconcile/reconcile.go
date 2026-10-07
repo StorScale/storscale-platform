@@ -21,7 +21,7 @@ type Reconciler struct {
 	Ranger   *Ranger
 	Buckets  *Buckets
 	Nessie   *Nessie
-	Store    *store.Store
+	Store    store.Store
 	Log      *slog.Logger
 	// RangerUserPassword starts the password of people the operator adds to
 	// Ranger (who never sign in to Ranger: Trino's plugin needs them listed).

@@ -1,7 +1,12 @@
-// Package store keeps projects, and the operator's status for each, as JSON
-// objects in a Buckets bucket: projects/<name>.json and status/<name>.json.
-// platformd writes projects; the operator writes status. (On Kubernetes, the
-// Project custom resource will take this place.)
+// Package store keeps projects, and the operator's status for each.
+// platformd writes projects; the operator writes status. Where depends on
+// where the platform runs:
+//
+//   - Bucket: JSON objects in a Buckets bucket, projects/<name>.json and
+//     status/<name>.json (Compose);
+//   - Kube: Project resources, with their status (Kubernetes);
+//   - Mirror: Kube, with a copy of every project and status kept in the
+//     bucket, for the services that read projects there.
 package store
 
 import (
@@ -19,13 +24,29 @@ import (
 	"github.com/StorScale/storscale-platform/internal/project"
 )
 
-type Store struct {
+// Store is where projects and their status live.
+type Store interface {
+	Projects(ctx context.Context) ([]*project.Project, error)
+	// Project is nil, with no error, when there's no such project.
+	Project(ctx context.Context, name string) (*project.Project, error)
+	PutProject(ctx context.Context, p *project.Project) error
+	DeleteProject(ctx context.Context, name string) error
+	// Statuses includes those of projects being deleted, which the operator
+	// still has to undo.
+	Statuses(ctx context.Context) ([]*project.Status, error)
+	Status(ctx context.Context, name string) (*project.Status, error)
+	PutStatus(ctx context.Context, st *project.Status) error
+	// DeleteStatus says the operator is done with a project: it has undone it.
+	DeleteStatus(ctx context.Context, name string) error
+}
+
+type Bucket struct {
 	c      *minio.Client
 	bucket string
 }
 
 // New connects to the bucket at endpoint (http://buckets:9000), with these keys.
-func New(endpoint, accessKey, secretKey, bucket string) (*Store, error) {
+func New(endpoint, accessKey, secretKey, bucket string) (*Bucket, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil || u.Host == "" {
 		return nil, errors.New("store endpoint " + endpoint + " isn't a URL")
@@ -35,10 +56,10 @@ func New(endpoint, accessKey, secretKey, bucket string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Store{c: c, bucket: bucket}, nil
+	return &Bucket{c: c, bucket: bucket}, nil
 }
 
-func (s *Store) Projects(ctx context.Context) ([]*project.Project, error) {
+func (s *Bucket) Projects(ctx context.Context) ([]*project.Project, error) {
 	var out []*project.Project
 	err := s.each(ctx, "projects/", func(data []byte) error {
 		p, err := project.Parse(data)
@@ -52,7 +73,7 @@ func (s *Store) Projects(ctx context.Context) ([]*project.Project, error) {
 }
 
 // Project is nil, with no error, when there's no such project.
-func (s *Store) Project(ctx context.Context, name string) (*project.Project, error) {
+func (s *Bucket) Project(ctx context.Context, name string) (*project.Project, error) {
 	data, err := s.get(ctx, "projects/"+name+".json")
 	if data == nil || err != nil {
 		return nil, err
@@ -60,15 +81,15 @@ func (s *Store) Project(ctx context.Context, name string) (*project.Project, err
 	return project.Parse(data)
 }
 
-func (s *Store) PutProject(ctx context.Context, p *project.Project) error {
+func (s *Bucket) PutProject(ctx context.Context, p *project.Project) error {
 	return s.put(ctx, "projects/"+p.Metadata.Name+".json", p)
 }
 
-func (s *Store) DeleteProject(ctx context.Context, name string) error {
+func (s *Bucket) DeleteProject(ctx context.Context, name string) error {
 	return s.c.RemoveObject(ctx, s.bucket, "projects/"+name+".json", minio.RemoveObjectOptions{})
 }
 
-func (s *Store) Statuses(ctx context.Context) ([]*project.Status, error) {
+func (s *Bucket) Statuses(ctx context.Context) ([]*project.Status, error) {
 	var out []*project.Status
 	err := s.each(ctx, "status/", func(data []byte) error {
 		var st project.Status
@@ -81,7 +102,7 @@ func (s *Store) Statuses(ctx context.Context) ([]*project.Status, error) {
 	return out, err
 }
 
-func (s *Store) Status(ctx context.Context, name string) (*project.Status, error) {
+func (s *Bucket) Status(ctx context.Context, name string) (*project.Status, error) {
 	data, err := s.get(ctx, "status/"+name+".json")
 	if data == nil || err != nil {
 		return nil, err
@@ -90,15 +111,15 @@ func (s *Store) Status(ctx context.Context, name string) (*project.Status, error
 	return &st, json.Unmarshal(data, &st)
 }
 
-func (s *Store) PutStatus(ctx context.Context, st *project.Status) error {
+func (s *Bucket) PutStatus(ctx context.Context, st *project.Status) error {
 	return s.put(ctx, "status/"+st.Name+".json", st)
 }
 
-func (s *Store) DeleteStatus(ctx context.Context, name string) error {
+func (s *Bucket) DeleteStatus(ctx context.Context, name string) error {
 	return s.c.RemoveObject(ctx, s.bucket, "status/"+name+".json", minio.RemoveObjectOptions{})
 }
 
-func (s *Store) each(ctx context.Context, prefix string, f func([]byte) error) error {
+func (s *Bucket) each(ctx context.Context, prefix string, f func([]byte) error) error {
 	for obj := range s.c.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{Prefix: prefix}) {
 		if obj.Err != nil {
 			return obj.Err
@@ -120,7 +141,7 @@ func (s *Store) each(ctx context.Context, prefix string, f func([]byte) error) e
 }
 
 // get is nil, with no error, when there's no such object.
-func (s *Store) get(ctx context.Context, key string) ([]byte, error) {
+func (s *Bucket) get(ctx context.Context, key string) ([]byte, error) {
 	obj, err := s.c.GetObject(ctx, s.bucket, key, minio.GetObjectOptions{})
 	if err != nil {
 		return nil, err
@@ -136,7 +157,7 @@ func (s *Store) get(ctx context.Context, key string) ([]byte, error) {
 	return data, nil
 }
 
-func (s *Store) put(ctx context.Context, key string, v any) error {
+func (s *Bucket) put(ctx context.Context, key string, v any) error {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err

@@ -1,10 +1,12 @@
 // platform-operator applies StorScale Platform's projects to the systems they
 // live in: Keycloak, Apache Ranger, Buckets and Nessie. It reads projects from
-// the store (a Buckets bucket, which platformd writes to) and writes back
-// each project's status.
+// the store (a Buckets bucket, which platformd writes to; on Kubernetes,
+// Project resources) and writes back each project's status.
 //
 // Configuration comes from the environment:
 //
+//	PROJECT_STORE                        bucket (the default), or kubernetes: Project resources
+//	                                     in the pod's namespace, with a copy kept in the bucket
 //	STORE_URL, STORE_BUCKET              the store: Buckets, and the bucket (storscale-platform)
 //	BUCKETS_ACCESS_KEY, BUCKETS_SECRET_KEY  Buckets credentials that may make buckets and policies
 //	KEYCLOAK_DIRECT_URL, KEYCLOAK_REALM  Keycloak, as the operator reaches it, and the realm
@@ -58,7 +60,9 @@ func main() {
 		log.Error("configuration", "error", "set "+strings.Join(missing, ", "))
 		os.Exit(2)
 	}
-	st, err := store.New(storeURL, accessKey, secretKey, env("STORE_BUCKET", "storscale-platform"))
+	// Projects: in the bucket (Compose), or Project resources with a copy in
+	// the bucket for the services that read them there (Kubernetes).
+	st, err := store.Open(os.Getenv("PROJECT_STORE"), storeURL, accessKey, secretKey, env("STORE_BUCKET", "storscale-platform"))
 	if err != nil {
 		log.Error("store", "error", err)
 		os.Exit(2)

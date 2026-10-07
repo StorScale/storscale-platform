@@ -1,6 +1,10 @@
-# The platform's images, built from docker/*.Dockerfile and pushed to ghcr.io/storscale:
+# The platform's images, pushed to ghcr.io/storscale, and on releases its Helm
+# chart (oci://ghcr.io/storscale/charts/storscale-platform):
 #
-#   ghcr.io/storscale/platformd   platformd and the platform's web app
+#   ghcr.io/storscale/platformd           platformd and the platform's web app
+#   ghcr.io/storscale/platform-<name>     the chart's images of stack/'s services: tools,
+#                                         airflow, superset, jupyterhub, notebook, opensearch,
+#                                         semanticd, catalog-sync
 #
 # Tags pushed:
 #   - pushes to main:   <short sha (8)> and main
@@ -43,15 +47,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        name: [platformd]
+        name: [platformd, platform-tools, platform-airflow, platform-superset, platform-jupyterhub,
+               platform-notebook, platform-opensearch, platform-semanticd, platform-catalog-sync]
         arch: [amd64, arm64]
         include:
           - arch: amd64
             runner: ubuntu-latest
           - arch: arm64
             runner: ubuntu-24.04-arm
-          - name: platformd
-            dockerfile: docker/platformd.Dockerfile
+          # The Helm chart's images (deploy/helm/storscale-platform, images.*).
+          - {name: platformd, context: ., dockerfile: docker/platformd.Dockerfile}
+          - {name: platform-tools, context: stack/tools}
+          - {name: platform-airflow, context: stack/airflow/image}
+          - {name: platform-superset, context: stack/superset/image}
+          - {name: platform-jupyterhub, context: stack/jupyterhub/image, target: hub}
+          - {name: platform-notebook, context: stack/jupyterhub/image, target: notebook}
+          - {name: platform-opensearch, context: stack/catalog/opensearch}
+          - {name: platform-semanticd, context: stack/semantic}
+          - {name: platform-catalog-sync, context: stack/catalog/sync}
     steps:
       - uses: actions/checkout@v4
 
@@ -67,8 +80,9 @@ jobs:
         id: build
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: ${{ matrix.dockerfile }}
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile || format('{0}/Dockerfile', matrix.context) }}
+          target: ${{ matrix.target }}
           platforms: linux/${{ matrix.arch }}
           outputs: type=image,name=${{ env.REGISTRY }}/${{ matrix.name }},push-by-digest=true,name-canonical=true,push=true
           labels: |
@@ -101,7 +115,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        name: [platformd]
+        name: [platformd, platform-tools, platform-airflow, platform-superset, platform-jupyterhub,
+               platform-notebook, platform-opensearch, platform-semanticd, platform-catalog-sync]
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -145,3 +160,23 @@ jobs:
       - name: Sign
         if: startsWith(github.ref, 'refs/tags/v')
         run: cosign sign --yes "${{ steps.tags.outputs.image }}@${{ steps.merge.outputs.digest }}"
+
+  # The chart, at the release's version: its images are that version's.
+  chart:
+    needs: merge
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Package and push the chart
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm repo add spark-operator https://kubeflow.github.io/spark-operator
+          helm dependency build deploy/helm/storscale-platform
+          helm package deploy/helm/storscale-platform --version "$version" --app-version "$version"
+          helm push "storscale-platform-$version.tgz" oci://ghcr.io/storscale/charts

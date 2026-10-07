@@ -1,9 +1,11 @@
 """The sales project, and its data: what the integration guides' checks use.
 
   - projects/sales.json goes into the project store, as platformd would put
-    it there; the platform operator applies it (Keycloak groups, Ranger
-    policies, the sales bucket and its policies, the Nessie namespace), and
-    this waits until it says the project is ready;
+    it there (in Kubernetes, a Project resource); the platform operator
+    applies it (Keycloak groups, Ranger policies, the sales bucket and its
+    policies, the Nessie namespace), and this waits until it says the project
+    is ready (in the store's bucket, where the operator keeps a copy of each
+    project's status in Kubernetes too);
   - then the project's data: iceberg.sales.orders and iceberg.sales.payroll,
     written by bob (an editor), and sales/datasets/orders.parquet.
 
@@ -16,6 +18,7 @@ import time
 
 import pandas as pd
 
+import k8s
 from lakekit import load_sales_tables, log, s3_root
 
 STORE = "storscale-platform"
@@ -39,7 +42,10 @@ def wait_ready(name, timeout=300):
 if __name__ == "__main__":
     with open("/projects/sales.json") as f:
         spec = f.read()
-    s3_root().put_object(Bucket=STORE, Key="projects/sales.json", Body=spec.encode(), ContentType="application/json")
+    if k8s.in_cluster():
+        k8s.put_project(json.loads(spec))
+    else:
+        s3_root().put_object(Bucket=STORE, Key="projects/sales.json", Body=spec.encode(), ContentType="application/json")
     st = wait_ready("sales")
     log("project sales: " + ", ".join(f"{m['username']} ({m['role']})" for m in st["members"]))
     # Ranger's plugin in Trino picks up new policies and groups within seconds.

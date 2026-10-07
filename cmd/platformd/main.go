@@ -93,6 +93,7 @@ type config struct {
 	Groups, AdminGroups                                   []string
 	Listen, WebDir                                        string
 	StoreURL, StoreBucket, StoreAccessKey, StoreSecretKey string
+	ProjectStore                                          string // bucket (the default) or kubernetes
 	CatalogURL, CatalogTokenFile                          string
 	SemanticURL                                           string
 	AirflowURL, AirflowUser, AirflowPassword              string
@@ -129,6 +130,7 @@ func configFromEnv(get func(string) string) (config, error) {
 		Listen:       or("PLATFORM_LISTEN", ":8080"),
 		WebDir:       or("PLATFORM_WEB_DIR", "/usr/share/storscale/web"),
 		StoreURL:     get("STORE_URL"), StoreBucket: or("STORE_BUCKET", "storscale-platform"),
+		ProjectStore:   get("PROJECT_STORE"),
 		StoreAccessKey: get("STORE_ACCESS_KEY"), StoreSecretKey: get("STORE_SECRET_KEY"),
 		CatalogURL: get("CATALOG_URL"), CatalogTokenFile: or("CATALOG_TOKEN_FILE", "/catalog/token"),
 		SemanticURL: strings.TrimRight(get("SEMANTIC_URL"), "/"),

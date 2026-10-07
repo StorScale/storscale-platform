@@ -1,4 +1,5 @@
-// storscale runs StorScale Platform on one machine, with Docker Compose.
+// storscale runs StorScale Platform on one machine, with Docker Compose, or
+// on a kind cluster of its own (--k8s), with the platform's Helm chart.
 //
 //	storscale up                 start the platform (builds its images the first time)
 //	storscale status             the platform's services
@@ -18,7 +19,8 @@ import (
 	"strings"
 )
 
-const usage = `storscale runs StorScale Platform on one machine, with Docker Compose.
+const usage = `storscale runs StorScale Platform on one machine, with Docker Compose, or with
+--k8s on a kind cluster of its own (the platform's Helm chart).
 
 Usage:
   storscale up [--port N]       start the platform (builds its images the first time)
@@ -31,7 +33,10 @@ Usage:
   storscale version
 
 Flags for every command:
-  --dir DIR   use the stack in DIR instead of the one built into storscale
+  --dir DIR   use the stack in DIR instead of the one built into storscale (a checkout's
+              stack: with --k8s, the images are built from the checkout, and its chart used)
+  --k8s       on kind (the cluster "storscale"; needs kind, kubectl and helm). down --volumes
+              deletes the cluster.
 
 Environment:
   STORSCALE_DOMAIN, STORSCALE_PORT   the platform's domain and port (storscale.localhost, 8800)
@@ -61,6 +66,7 @@ func run(args []string) error {
 	dir := fs.String("dir", "", "use the stack in this directory")
 	port := fs.Int("port", 0, "the platform's port (up)")
 	volumes := fs.Bool("volumes", false, "also delete the platform's data (down)")
+	k8s := fs.Bool("k8s", false, "on a kind cluster, with the Helm chart")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -74,6 +80,9 @@ func run(args []string) error {
 	st, err := openStack(*dir)
 	if err != nil {
 		return err
+	}
+	if *k8s {
+		return newKube(st).do(cmd, st, fs.Args(), *volumes)
 	}
 	switch cmd {
 	case "up":
