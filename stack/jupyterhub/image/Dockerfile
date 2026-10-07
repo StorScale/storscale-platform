@@ -3,9 +3,10 @@
 #   docker compose build      (compose.yaml builds the "hub" and "notebook" targets)
 
 # JupyterHub 6, signing people in with Keycloak (OAuthenticator) and starting
-# each person's notebook server in a container of its own (DockerSpawner).
+# each person's notebook server in a container of its own (DockerSpawner), or
+# in Kubernetes, a pod of its own (KubeSpawner).
 FROM quay.io/jupyterhub/jupyterhub:6.0.1 AS hub
-RUN pip install --no-cache-dir oauthenticator==17.4.0 dockerspawner==14.0.0
+RUN pip install --no-cache-dir oauthenticator==17.4.0 dockerspawner==14.0.0 jupyterhub-kubespawner==7.1.0
 
 # The notebook server people get: JupyterLab, boto3, and buckets_lake, which
 # turns the person's own Keycloak sign-in into Buckets credentials.

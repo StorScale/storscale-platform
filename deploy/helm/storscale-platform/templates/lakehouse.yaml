@@ -1,0 +1,153 @@
+# The lakehouse's tables: Nessie (the Iceberg catalog) and Trino.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nessie-data
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.storage.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources: {requests: {storage: {{ .Values.storage.nessie }}}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nessie
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "storscale.selector" (list .Release.Name "nessie") | nindent 6 }}
+  strategy: {type: Recreate}
+  template:
+    metadata:
+      labels: {{- include "storscale.selector" (list .Release.Name "nessie") | nindent 8 }}
+    spec:
+      serviceAccountName: storscale
+      securityContext: {fsGroup: 185}
+      initContainers:
+        {{- include "storscale.wait" (list . "setup" (list "job" "setup")) | nindent 8 }}
+      containers:
+        - name: nessie
+          image: {{ .Values.upstream.nessie }}
+          env:
+            - {name: JAVA_OPTS_APPEND, value: "-Xms64m -Xmx256m"}
+            - {name: nessie.version.store.type, value: ROCKSDB}
+            - {name: nessie.version.store.persist.rocks.database-path, value: /home/nessie/catalog}
+            - {name: nessie.catalog.default-warehouse, value: warehouse}
+            - {name: nessie.catalog.warehouses.warehouse.location, value: "s3://warehouse/"}
+            - {name: nessie.catalog.service.s3.default-options.endpoint, value: "http://buckets:9000/"}
+            - {name: nessie.catalog.service.s3.default-options.region, value: us-east-1}
+            - {name: nessie.catalog.service.s3.default-options.path-style-access, value: "true"}
+            - {name: nessie.catalog.service.s3.default-options.access-key, value: "urn:nessie-secret:quarkus:nessie.catalog.secrets.access-key"}
+            - {name: nessie.catalog.secrets.access-key.name, valueFrom: {secretKeyRef: {name: storscale-env, key: NESSIE_S3_ACCESS_KEY}}}
+            - {name: nessie.catalog.secrets.access-key.secret, valueFrom: {secretKeyRef: {name: storscale-env, key: NESSIE_S3_SECRET_KEY}}}
+          ports:
+            - {name: http, containerPort: 19120}
+            - {name: management, containerPort: 9000}
+          readinessProbe:
+            httpGet: {path: /q/health/ready, port: management}
+            periodSeconds: 5
+            failureThreshold: 60
+          volumeMounts:
+            - {name: data, mountPath: /home/nessie}
+          {{- include "storscale.resources" (list "50m" "320Mi" "512Mi") | nindent 10 }}
+      volumes:
+        - {name: data, persistentVolumeClaim: {claimName: nessie-data}}
+        {{- include "storscale.filesVolume" (list . "tools" "tools") | nindent 8 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nessie
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "storscale.selector" (list .Release.Name "nessie") | nindent 4 }}
+  ports:
+    - {name: http, port: 19120, targetPort: http}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trino
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "storscale.selector" (list .Release.Name "trino") | nindent 6 }}
+  strategy: {type: Recreate}
+  template:
+    metadata:
+      labels: {{- include "storscale.selector" (list .Release.Name "trino") | nindent 8 }}
+      annotations:
+        checksum/config: {{ include "storscale.filesConfigMap" (list . "trino" "trino") | sha256sum }}
+    spec:
+      serviceAccountName: storscale
+      initContainers:
+        {{- include "storscale.wait" (list . "setup" (list "job" "setup")) | nindent 8 }}
+        {{- include "storscale.wait" (list . "nessie" (list "url" "http://nessie:19120/api/v2/config")) | nindent 8 }}
+        # Trino's password file (bcrypt): Superset and the catalog sign in to Trino with passwords.
+        - name: passwords
+          image: {{ include "storscale.image" (list . "tools") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          command: ["sh", "-c"]
+          args:
+            - htpasswd -B -C 10 -b -c /auth/password.db superset "$SUPERSET_TRINO_PASSWORD" &&
+              htpasswd -B -C 10 -b /auth/password.db openmetadata "$OPENMETADATA_TRINO_PASSWORD" && chmod 644 /auth/password.db
+          {{- include "storscale.envFrom" . | nindent 10 }}
+          volumeMounts:
+            - {name: auth, mountPath: /auth}
+      containers:
+        - name: trino
+          image: {{ .Values.upstream.trino }}
+          {{- include "storscale.envFrom" . | nindent 10 }}
+          ports:
+            - {name: http, containerPort: 8080}
+            - {name: https, containerPort: 8443}
+          readinessProbe:
+            exec: {command: ["sh", "-c", "curl -sf http://localhost:8080/v1/info | grep -q '\"starting\":false'"]}
+            periodSeconds: 5
+            failureThreshold: 60
+          volumeMounts:
+            {{- range $f := list "config.properties" "password-authenticator.properties" "access-control.properties" "ranger-trino-security.xml" "ranger-trino-audit.xml" }}
+            - {name: files-trino, mountPath: /etc/trino/{{ $f }}, subPath: {{ $f }}}
+            {{- end }}
+            - {name: files-trino, mountPath: /etc/trino/catalog, subPath: catalog}
+            - {name: tls, mountPath: /etc/trino/tls}
+            - {name: auth, mountPath: /etc/trino/auth}
+          resources:
+            requests: {cpu: 250m, memory: {{ .Values.trino.memory }}}
+            limits: {memory: {{ .Values.trino.memory }}}
+      volumes:
+        {{- include "storscale.filesVolume" (list . "trino" "trino") | nindent 8 }}
+        {{- include "storscale.filesVolume" (list . "tools" "tools") | nindent 8 }}
+        - {name: tls, secret: {secretName: trino-tls}}
+        - {name: auth, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trino
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "storscale.selector" (list .Release.Name "trino") | nindent 4 }}
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+    - {name: https, port: 8443, targetPort: https}
+---
+# Trino's HTTPS port, for JDBC and CLI clients outside the cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: trino-external
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.trino.service.type }}
+  selector: {{- include "storscale.selector" (list .Release.Name "trino") | nindent 4 }}
+  ports:
+    - name: https
+      port: 8443
+      targetPort: https
+      {{- if and (eq .Values.trino.service.type "NodePort") .Values.trino.service.nodePort }}
+      nodePort: {{ .Values.trino.service.nodePort }}
+      {{- end }}

@@ -1,0 +1,61 @@
+# Keycloak: sign-in for everything. The realm (stack/keycloak/realm.json) is
+# imported afresh on each start, with the signing key the chart keeps.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "storscale.selector" (list .Release.Name "keycloak") | nindent 6 }}
+  strategy: {type: Recreate}
+  template:
+    metadata:
+      labels: {{- include "storscale.selector" (list .Release.Name "keycloak") | nindent 8 }}
+      annotations:
+        checksum/realm: {{ .Files.Get "files/keycloak/realm.json" | sha256sum }}
+    spec:
+      containers:
+        - name: keycloak
+          image: {{ .Values.upstream.keycloak }}
+          command: ["bash", "-c"]
+          args:
+            - |
+              export KC_SIGNING_KEY="$(grep -v -- ----- /keys/key.pem | tr -d '\n')"
+              export KC_SIGNING_CERT="$(grep -v -- ----- /keys/cert.pem | tr -d '\n')"
+              exec /opt/keycloak/bin/kc.sh start-dev --import-realm
+          {{- include "storscale.envFrom" . | nindent 10 }}
+          env:
+            - {name: JAVA_OPTS_KC_HEAP, value: "-Xms128m -Xmx384m"}
+            - {name: KC_BOOTSTRAP_ADMIN_USERNAME, value: admin}
+            - {name: KC_BOOTSTRAP_ADMIN_PASSWORD, valueFrom: {secretKeyRef: {name: storscale-env, key: KEYCLOAK_ADMIN_PASSWORD}}}
+            - {name: KC_HOSTNAME, value: "{{ include "storscale.url" . }}/sso"}
+            - {name: KC_HTTP_RELATIVE_PATH, value: /sso}
+            - {name: KC_HTTP_MANAGEMENT_RELATIVE_PATH, value: /}
+            - {name: KC_PROXY_HEADERS, value: xforwarded}
+            - {name: KC_HEALTH_ENABLED, value: "true"}
+          ports:
+            - {name: http, containerPort: 8080}
+            - {name: management, containerPort: 9000}
+          readinessProbe:
+            httpGet: {path: /health/ready, port: management}
+            periodSeconds: 5
+            failureThreshold: 60
+          volumeMounts:
+            - {name: realm, mountPath: /opt/keycloak/data/import/lakehouse-realm.json, subPath: realm.json}
+            - {name: keys, mountPath: /keys}
+          {{- include "storscale.resources" (list "100m" "512Mi" "768Mi") | nindent 10 }}
+      volumes:
+        - {name: realm, configMap: {name: files-keycloak}}
+        - {name: keys, secret: {secretName: keycloak-keys}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "storscale.selector" (list .Release.Name "keycloak") | nindent 4 }}
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+    - {name: management, port: 9000, targetPort: management}

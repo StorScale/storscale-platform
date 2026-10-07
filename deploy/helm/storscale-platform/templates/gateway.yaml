@@ -1,0 +1,73 @@
+# The gateway: the platform's one address, a path per tool (stack/gateway/Caddyfile).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "storscale.selector" (list .Release.Name "gateway") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "storscale.selector" (list .Release.Name "gateway") | nindent 8 }}
+      annotations:
+        checksum/config: {{ .Files.Get "files/gateway/Caddyfile" | sha256sum }}
+    spec:
+      containers:
+        - name: caddy
+          image: {{ .Values.upstream.caddy }}
+          args: ["caddy", "run", "--config", "/etc/storscale/Caddyfile", "--adapter", "caddyfile"]
+          env:
+            - {name: STORSCALE_DOMAIN, value: {{ .Values.global.domain | quote }}}
+            - {name: STORSCALE_PORT, value: {{ .Values.global.port | quote }}}
+          ports:
+            - {name: http, containerPort: {{ .Values.global.port }}}
+          readinessProbe:
+            tcpSocket: {port: http}   # Caddy is up; each route's service has its own probe
+            periodSeconds: 5
+          volumeMounts:
+            - {name: files-gateway, mountPath: /etc/storscale}
+            - {name: files-gateway, mountPath: /srv/_storscale, subPath: catalog}
+          {{- include "storscale.resources" (list "20m" "32Mi" "128Mi") | nindent 10 }}
+      volumes:
+        {{- include "storscale.filesVolume" (list . "gateway" "gateway") | nindent 8 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.gateway.service.type }}
+  selector: {{- include "storscale.selector" (list .Release.Name "gateway") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.global.port }}
+      targetPort: http
+      {{- if and (eq .Values.gateway.service.type "NodePort") .Values.gateway.service.nodePort }}
+      nodePort: {{ .Values.gateway.service.nodePort }}
+      {{- end }}
+{{- if .Values.gateway.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gateway
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  {{- with .Values.gateway.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.gateway.ingress.tls }}
+  tls: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range $h := list "" "catalog." "access." "s3." }}
+    - host: {{ $h }}{{ $.Values.global.domain }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: {service: {name: gateway, port: {name: http}}}
+    {{- end }}
+{{- end }}

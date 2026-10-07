@@ -143,6 +143,18 @@ Each phase ends with a gate: an end-to-end test like the examples' `test.py`, ru
 | 6 | Operations: Audit and Health pages (Loki, Grafana), backup and upgrade notes, docs on storscale.io/platform | A full upgrade between two releases with no lost projects |
 | 7+ | Later items, in this order: MLflow, Prepare-recipe builder, promotion between installs, LiteLLM | Per feature |
 
+## Phase 5: Kubernetes, how
+
+- **One chart:** `deploy/helm/storscale-platform`. It reads the stack's own files (`stack/`: the realm, Trino's and the gateway's configuration, the DAGs, the setup scripts) through a symlink, so Compose and Kubernetes run the same configuration.
+- **Same names:** each Compose service becomes a Kubernetes Service of the same name (`keycloak`, `trino`, `buckets`, `airflow-db`, ...). The gateway's routes, the tools' settings and the end-to-end tests work unchanged.
+- **One address:** the platform's names (`storscale.localhost`, `catalog.`, `access.`, `s3.`) resolve to the gateway's Service inside the cluster as well as outside it, so tokens keep one issuer. A real install uses its domain's DNS. On kind, one rewrite rule in the cluster's DNS does it (`deploy/kind/dns.sh`), as Compose's network aliases do, and port 8800 on the host reaches the gateway.
+- **Dependencies, as subcharts:** the Buckets operator (`oci://ghcr.io/storscale/charts/buckets-operator`) runs a `BucketsCluster` named `buckets`, and the Spark Operator (Kubeflow's chart) runs Spark jobs.
+- **Secrets:** one Secret, `storscale-env`, holds what `.env` holds in Compose. Each value is generated on install and kept on upgrade, unless one is given in values. Trino's TLS certificate and the realm's signing key are Secrets made by the chart. Files one service writes for others (the catalog's bot token, Prometheus' Buckets token) become Secrets their writers keep up to date.
+- **Order:** one-off setup steps are Jobs, named after the release's revision, so an upgrade runs them again. Services that need one wait for it in an init container, as Compose's `depends_on` does.
+- **Notebooks:** JupyterHub starts each person's server as a pod (KubeSpawner) instead of a container.
+- **Projects:** `Project` resources. platformd and the operator use the Kubernetes API as the project store, in place of the Buckets bucket that Compose uses.
+- **Tests:** `storscale test --k8s` runs the same suites in a pod in the release's namespace. CI installs the chart on kind and runs them.
+
 ## The semantic layer, and agents
 
 People define what the business means once: entities (customer, order), dimensions (region, month), measures and metrics (revenue, active customers), and how tables join. People, dashboards and AI agents then ask for *metrics*, not SQL. They get the same answer, under the same access rules.

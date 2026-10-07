@@ -1,0 +1,25 @@
+{{/* The stack's own files (stack/, through the chart's files/ link), as
+     ConfigMaps: Compose and Kubernetes run the same configuration. */}}
+{{- range $name := list "tools" "projects" "keycloak" "trino" "gateway" "superset" "airflow" "jupyterhub" "monitoring" "ranger" "tests" }}
+---
+{{ include "storscale.filesConfigMap" (list $ $name $name) }}
+{{- end }}
+---
+# What Compose's x-urls and .env's non-secret part give the services.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: storscale-config
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+data:
+  STORSCALE_DOMAIN: {{ .Values.global.domain | quote }}
+  STORSCALE_PORT: {{ .Values.global.port | quote }}
+  PLATFORM_URL: {{ include "storscale.url" . | quote }}
+  KEYCLOAK_URL: "{{ include "storscale.url" . }}/sso"
+  NOTEBOOKS_URL: "{{ include "storscale.url" . }}/notebooks"
+  DASHBOARDS_URL: "{{ include "storscale.url" . }}/dashboards"
+  PIPELINES_URL: "{{ include "storscale.url" . }}/pipelines"
+  MONITORING_URL: "{{ include "storscale.url" . }}/monitoring"
+  PYTHONPATH: /tools
+  STORSCALE_K8S: "true"
+  STORSCALE_NAMESPACE: {{ .Release.Namespace | quote }}

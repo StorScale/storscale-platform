@@ -1,0 +1,26 @@
+# Buckets: the platform's S3 storage, run by the Buckets operator. Its
+# Service is "buckets" on port 9000, as in Compose. People sign in with
+# Keycloak, and each of their groups names a Buckets policy.
+apiVersion: buckets.io/v1alpha1
+kind: BucketsCluster
+metadata:
+  name: buckets
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  image: {{ .Values.upstream.bucketsd }}
+  credsSecret: {name: buckets-root}
+  pools:
+    - servers: {{ .Values.buckets.servers }}
+      volumesPerServer: {{ .Values.buckets.volumesPerServer }}
+      volumeClaimTemplate:
+        {{- with .Values.buckets.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests: {storage: {{ .Values.buckets.storage }}}
+      resources:
+        requests: {cpu: 100m, memory: 256Mi}
+  env:
+    - {name: MINIO_IDENTITY_OPENID_CONFIG_URL, value: "{{ include "storscale.url" . }}/sso/realms/lakehouse/.well-known/openid-configuration"}
+    - {name: MINIO_IDENTITY_OPENID_CLIENT_ID, value: lakehouse}
+    - {name: MINIO_IDENTITY_OPENID_CLAIM_NAME, value: groups}

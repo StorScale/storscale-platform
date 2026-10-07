@@ -2,7 +2,8 @@
 
   - a metrics-only user for Prometheus (policy buckets-prometheus, allowed only
     admin:Prometheus), and its bearer token from `mc admin prometheus generate`,
-    in the file Prometheus reads (/token/token);
+    in the file Prometheus reads (/token/token; in Kubernetes, the Secret
+    prometheus-token);
   - buckets with data for the dashboards: photos (versioned), logs (with a
     quota) and backups.
 
@@ -12,6 +13,7 @@ import io
 import os
 import re
 
+import k8s
 from lakekit import env, log, mc, s3_root, setup_buckets
 
 PROMETHEUS_POLICY = [{"Effect": "Allow", "Action": ["admin:Prometheus"], "Resource": ["arn:aws:s3:::*"]}]
@@ -25,11 +27,15 @@ mc("quota", "set", "buckets/logs", "--size", "2GiB")
 mc("alias", "set", "metrics", "http://buckets:9000", env["PROMETHEUS_USER"], env["PROMETHEUS_SECRET"])
 out = mc("admin", "prometheus", "generate", "metrics").stdout
 token = re.search(r"bearer_token:\s*(\S+)", out).group(1)
-os.makedirs("/token", exist_ok=True)
-with open("/token/token", "w") as f:
-    f.write(token)
-os.chmod("/token/token", 0o644)
-log("Prometheus: metrics user, and its token in /token/token")
+if k8s.in_cluster():
+    k8s.put_secret("prometheus-token", {"token": token})
+    log("Prometheus: metrics user, and its token in the Secret prometheus-token")
+else:
+    os.makedirs("/token", exist_ok=True)
+    with open("/token/token", "w") as f:
+        f.write(token)
+    os.chmod("/token/token", 0o644)
+    log("Prometheus: metrics user, and its token in /token/token")
 
 s3 = s3_root()
 for i in range(40):

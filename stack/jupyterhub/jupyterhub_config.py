@@ -52,18 +52,39 @@ c.JupyterHub.load_roles = [
 FRAMED_BY = {"Content-Security-Policy": "frame-ancestors 'self'"}  # the platform is the same origin
 c.JupyterHub.tornado_settings = {"headers": FRAMED_BY}
 
-# --- Notebooks: a container per person -------------------------------------------------
-c.JupyterHub.spawner_class = "docker"
-c.DockerSpawner.image = "storscale-notebook"
-c.DockerSpawner.network_name = "storscale"
-c.DockerSpawner.remove = True
-c.DockerSpawner.mem_limit = "1G"
-c.DockerSpawner.notebook_dir = "/home/jovyan/work"
-c.DockerSpawner.volumes = {"storscale-notebooks-{username}": "/home/jovyan/work"}
-c.DockerSpawner.environment = {"BUCKETS_ENDPOINT": "http://buckets:9000", "BUCKETS_REGION": "us-east-1"}
+# --- Notebooks: a container per person (Compose), or a pod per person (Kubernetes) ----
+NOTEBOOK_ENV = {"BUCKETS_ENDPOINT": "http://buckets:9000", "BUCKETS_REGION": "us-east-1"}
+NOTEBOOK_ARGS = ["--ServerApp.tornado_settings=" + json.dumps({"headers": FRAMED_BY})]
 c.Spawner.start_timeout = 120
 c.Spawner.http_timeout = 120  # a notebook server's first start can be slow on a busy machine
-c.DockerSpawner.args = ["--ServerApp.tornado_settings=" + json.dumps({"headers": FRAMED_BY})]
+c.Spawner.notebook_dir = "/home/jovyan/work"
+
+if os.environ.get("STORSCALE_K8S") == "true":
+    c.JupyterHub.spawner_class = "kubespawner.KubeSpawner"
+    c.KubeSpawner.namespace = os.environ["STORSCALE_NAMESPACE"]
+    c.KubeSpawner.image = os.environ["NOTEBOOK_IMAGE"]
+    c.KubeSpawner.image_pull_policy = os.environ.get("NOTEBOOK_PULL_POLICY", "IfNotPresent")
+    c.KubeSpawner.mem_limit = os.environ.get("NOTEBOOK_MEMORY", "1G")
+    c.KubeSpawner.mem_guarantee = "256M"
+    c.KubeSpawner.environment = NOTEBOOK_ENV
+    c.KubeSpawner.args = NOTEBOOK_ARGS
+    c.KubeSpawner.uid = 1000
+    c.KubeSpawner.fs_gid = 100
+    # Each person's files, on a volume of their own that outlives their server.
+    c.KubeSpawner.storage_pvc_ensure = True
+    c.KubeSpawner.pvc_name_template = "notebooks-{user_server}"
+    c.KubeSpawner.storage_capacity = os.environ.get("NOTEBOOK_STORAGE", "1Gi")
+    c.KubeSpawner.volumes = [{"name": "work", "persistentVolumeClaim": {"claimName": "notebooks-{user_server}"}}]
+    c.KubeSpawner.volume_mounts = [{"name": "work", "mountPath": "/home/jovyan/work"}]
+else:
+    c.JupyterHub.spawner_class = "docker"
+    c.DockerSpawner.image = "storscale-notebook"
+    c.DockerSpawner.network_name = "storscale"
+    c.DockerSpawner.remove = True
+    c.DockerSpawner.mem_limit = "1G"
+    c.DockerSpawner.volumes = {"storscale-notebooks-{username}": "/home/jovyan/work"}
+    c.DockerSpawner.environment = NOTEBOOK_ENV
+    c.DockerSpawner.args = NOTEBOOK_ARGS
 
 # At the platform's /notebooks/: the same address as the platform, so its cookies are first-party.
 c.JupyterHub.base_url = "/notebooks/"

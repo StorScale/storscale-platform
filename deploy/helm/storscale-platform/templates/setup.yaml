@@ -1,0 +1,51 @@
+{{/* The platform's setup steps (stack/tools/setup/run.py), as Compose's
+     setup and setup-trino. Named after the release's revision, so each
+     upgrade runs them again; every step is safe to run again. Services that
+     need a step wait for it (storscale.wait ... "job"). */}}
+{{- define "storscale.setupJob" -}}
+{{- $root := index . 0 -}}{{- $step := index . 1 -}}{{- $stage := index . 2 -}}{{- $waits := index . 3 -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $step }}-{{ $root.Release.Revision }}
+  labels: {{- include "storscale.labels" $root | nindent 4 }}
+spec:
+  backoffLimit: 10
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {{- include "storscale.selector" (list $root.Release.Name $step) | nindent 8 }}
+    spec:
+      serviceAccountName: storscale
+      restartPolicy: OnFailure
+      initContainers:
+        {{- range $i, $w := $waits }}
+        {{- include "storscale.wait" (list $root (printf "%d" $i) $w) | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: setup
+          image: {{ include "storscale.image" (list $root "tools") }}
+          imagePullPolicy: {{ $root.Values.images.pullPolicy }}
+          command: ["sh", "-c", "python -u /tools/setup/run.py {{ $stage }} && python /tools/k8s.py done {{ $step }}"]
+          {{- include "storscale.envFrom" $root | nindent 10 }}
+          env:
+            - {name: STORSCALE_REVISION, value: {{ $root.Release.Revision | quote }}}
+          volumeMounts:
+            - {name: files-tools, mountPath: /tools}
+            - {name: files-projects, mountPath: /projects}
+            - {name: tls, mountPath: /tls}
+          {{- include "storscale.resources" (list "50m" "128Mi" "512Mi") | nindent 10 }}
+      volumes:
+        {{- include "storscale.filesVolume" (list $root "tools" "tools") | nindent 8 }}
+        {{- include "storscale.filesVolume" (list $root "projects" "projects") | nindent 8 }}
+        - {name: tls, secret: {secretName: trino-tls}}
+{{- end }}
+
+{{- /* Before Trino: Buckets' buckets, policies and accounts; Ranger's people and policies. */}}
+{{ include "storscale.setupJob" (list . "setup" "base" (list
+  (list "url" "http://keycloak:9000/health/ready" "http://buckets:9000/minio/health/live" "http://ranger-admin:6080/login.jsp"))) }}
+---
+{{- /* Once Trino is up: what Superset needs, then the sales project and its data. */}}
+{{ include "storscale.setupJob" (list . "setup-trino" "trino" (list
+  (list "job" "setup")
+  (list "url" "http://trino:8080/v1/info=~\"starting\":false" "http://platform-operator:8081/healthz"))) }}

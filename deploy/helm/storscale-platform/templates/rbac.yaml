@@ -1,0 +1,27 @@
+# The platform's own pods: setup steps write a few Secrets (the catalog's bot
+# token, Prometheus' Buckets token) and mark themselves finished; services
+# wait for them. Nothing outside the release's namespace.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: storscale
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: storscale
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [secrets, configmaps]
+    verbs: [get, list, create, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: storscale
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: storscale}
+subjects:
+  - {kind: ServiceAccount, name: storscale, namespace: {{ .Release.Namespace }}}

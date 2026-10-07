@@ -1,0 +1,12 @@
+# One kind node for StorScale Platform: `storscale up --k8s` (or
+# `kind create cluster --name storscale --config deploy/kind/cluster.yaml`).
+# The host's port 8800 reaches the gateway, and 8443 reaches Trino, as in Compose.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  serviceSubnet: 10.96.0.0/16   # the gateway's fixed cluster IP (10.96.88.88) is in it
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - {containerPort: 30880, hostPort: 8800, listenAddress: 127.0.0.1}
+      - {containerPort: 30443, hostPort: 8443, listenAddress: 127.0.0.1}

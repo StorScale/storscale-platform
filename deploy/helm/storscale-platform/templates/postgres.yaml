@@ -1,0 +1,75 @@
+# One PostgreSQL for the tools' metadata (Airflow, Superset, OpenMetadata):
+# a database and an account for each, made on first start. Compose runs a
+# server per tool; the Services below keep its names, so no tool's settings change.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+data:
+  init.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    db() {  # account, password, database
+      psql -v ON_ERROR_STOP=1 --username postgres <<SQL
+    CREATE ROLE "$1" LOGIN PASSWORD '$2';
+    CREATE DATABASE "$3" OWNER "$1";
+    SQL
+    }
+    db airflow "$AIRFLOW_DB_PASSWORD" airflow
+    db superset "$SUPERSET_DB_PASSWORD" superset
+    db openmetadata_user "$OPENMETADATA_DB_PASSWORD" openmetadata_db
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  serviceName: postgres
+  selector:
+    matchLabels: {{- include "storscale.selector" (list .Release.Name "postgres") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "storscale.selector" (list .Release.Name "postgres") | nindent 8 }}
+    spec:
+      containers:
+        - name: postgres
+          image: {{ .Values.upstream.postgres }}
+          args: ["postgres", "-c", "work_mem=10MB", "-c", "max_connections=200"]
+          env:
+            - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: storscale-env, key: POSTGRES_ADMIN_PASSWORD}}}
+            - {name: AIRFLOW_DB_PASSWORD, valueFrom: {secretKeyRef: {name: storscale-env, key: AIRFLOW_DB_PASSWORD}}}
+            - {name: SUPERSET_DB_PASSWORD, valueFrom: {secretKeyRef: {name: storscale-env, key: SUPERSET_DB_PASSWORD}}}
+            - {name: OPENMETADATA_DB_PASSWORD, valueFrom: {secretKeyRef: {name: storscale-env, key: OPENMETADATA_DB_PASSWORD}}}
+          ports:
+            - {name: postgres, containerPort: 5432}
+          readinessProbe:
+            exec: {command: ["pg_isready", "-U", "postgres"]}
+            periodSeconds: 5
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql}
+            - {name: init, mountPath: /docker-entrypoint-initdb.d}
+          {{- include "storscale.resources" (list "100m" "256Mi" "1Gi") | nindent 10 }}
+      volumes:
+        - {name: init, configMap: {name: postgres-init, defaultMode: 0755}}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- with .Values.storage.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources: {requests: {storage: {{ .Values.storage.postgres }}}}
+{{- range $name := list "postgres" "airflow-db" "superset-db" "openmetadata-db" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels: {{- include "storscale.labels" $ | nindent 4 }}
+spec:
+  selector: {{- include "storscale.selector" (list $.Release.Name "postgres") | nindent 4 }}
+  ports:
+    - {name: postgres, port: 5432, targetPort: postgres}
+{{- end }}

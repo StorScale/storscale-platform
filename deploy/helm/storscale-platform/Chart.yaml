@@ -1,0 +1,24 @@
+apiVersion: v2
+name: storscale-platform
+description: >-
+  StorScale Platform on Kubernetes: projects, a lakehouse (Buckets, Nessie, Trino, Ranger),
+  notebooks, dashboards, pipelines, a catalog and a semantic layer, with one sign-in.
+type: application
+version: 0.3.0
+appVersion: "0.3.0"
+home: https://storscale.io
+sources:
+  - https://github.com/StorScale/storscale-platform
+annotations:
+  licenses: AGPL-3.0-or-later
+dependencies:
+  # Buckets: the S3 storage, run by its operator (a BucketsCluster named "buckets").
+  - name: buckets-operator
+    version: 1.12.0
+    repository: oci://ghcr.io/storscale/charts
+    condition: buckets-operator.enabled
+  # Spark jobs (SparkApplication resources).
+  - name: spark-operator
+    version: 2.5.2
+    repository: https://kubeflow.github.io/spark-operator
+    condition: spark-operator.enabled

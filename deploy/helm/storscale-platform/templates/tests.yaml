@@ -1,0 +1,111 @@
+{{/* The end-to-end checks, as Compose's test and test-browser: `helm test`
+     (or `storscale test --k8s [suite ...]`, which writes the ConfigMap
+     storscale-tests first to pick suites). */}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: storscale-test
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+---
+# The monitoring suite fails one of Buckets' drives for a minute, from inside
+# its pod, as a failing disk would.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: storscale-test
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create, get]
+  - apiGroups: [""]
+    resources: [configmaps, secrets]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: storscale-test
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: storscale-test}
+subjects:
+  - {kind: ServiceAccount, name: storscale-test, namespace: {{ .Release.Namespace }}}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: storscale-test
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "2"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  serviceAccountName: storscale-test
+  restartPolicy: Never
+  containers:
+    - name: test
+      image: {{ include "storscale.image" (list . "tools") }}
+      imagePullPolicy: {{ .Values.images.pullPolicy }}
+      # The suites picked (all of them when none are), less the browser's.
+      command: ["sh", "-c"]
+      args:
+        - |
+          f=/etc/storscale-tests/suites
+          if [ -f $f ]; then picked=$(tr ' ' '\n' < $f | grep -vx shell | tr '\n' ' '); [ -n "${picked# }" ] || exit 0; fi
+          exec python -u /tests/run.py $picked
+      {{- include "storscale.envFrom" . | nindent 6 }}
+      env:
+        - {name: BUCKETS_DRIVE, value: "buckets-pool-0-0:/data3"}
+      volumeMounts:
+        - {name: files-tools, mountPath: /tools}
+        - {name: files-tests, mountPath: /tests}
+        - {name: files-projects, mountPath: /projects}
+        - {name: files-monitoring, mountPath: /dashboards, subPath: dashboards}
+        - {name: tls, mountPath: /tls}
+        - {name: suites, mountPath: /etc/storscale-tests}
+      {{- include "storscale.resources" (list "50m" "128Mi" "768Mi") | nindent 6 }}
+  volumes:
+    {{- include "storscale.filesVolume" (list . "tools" "tools") | nindent 4 }}
+    {{- include "storscale.filesVolume" (list . "tests" "tests") | nindent 4 }}
+    {{- include "storscale.filesVolume" (list . "projects" "projects") | nindent 4 }}
+    {{- include "storscale.filesVolume" (list . "monitoring" "monitoring") | nindent 4 }}
+    - {name: tls, secret: {secretName: trino-tls}}
+    - {name: suites, configMap: {name: storscale-tests, optional: true}}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: storscale-test-browser
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "1"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  restartPolicy: Never
+  containers:
+    - name: browser
+      image: mcr.microsoft.com/playwright/python:v1.63.0-noble
+      command: ["sh", "-c"]
+      args:
+        - |
+          f=/etc/storscale-tests/suites
+          if [ -f $f ] && ! grep -qw shell $f; then exit 0; fi
+          pip install -q --root-user-action=ignore playwright==1.63.0 && exec python -u /tests/shell.py
+      {{- include "storscale.envFrom" . | nindent 6 }}
+      env:
+        - {name: SHELL_SWITCH, value: "0"}
+      volumeMounts:
+        - {name: files-tests, mountPath: /tests}
+        - {name: shm, mountPath: /dev/shm}
+        - {name: suites, mountPath: /etc/storscale-tests}
+      resources:
+        requests: {cpu: 100m, memory: 512Mi}
+  volumes:
+    {{- include "storscale.filesVolume" (list . "tests" "tests") | nindent 4 }}
+    - {name: shm, emptyDir: {medium: Memory, sizeLimit: 1Gi}}
+    - {name: suites, configMap: {name: storscale-tests, optional: true}}

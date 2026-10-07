@@ -1,0 +1,152 @@
+# The platform: its web app and API (platformd), the operator that applies
+# projects, and the semantic layer (semanticd, with the MCP server for agents).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platformd
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "storscale.selector" (list .Release.Name "platformd") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "storscale.selector" (list .Release.Name "platformd") | nindent 8 }}
+    spec:
+      serviceAccountName: storscale
+      initContainers:
+        {{- include "storscale.wait" (list . "keycloak" (list "url" "http://keycloak:9000/health/ready")) | nindent 8 }}
+      containers:
+        - name: platformd
+          image: {{ include "storscale.image" (list . "platformd") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          env:
+            - {name: PLATFORM_URL, value: {{ include "storscale.url" . | quote }}}
+            - {name: KEYCLOAK_URL, value: "{{ include "storscale.url" . }}/sso"}
+            - {name: KEYCLOAK_DIRECT_URL, value: "http://keycloak:8080/sso"}
+            - {name: OIDC_CLIENT_SECRET, valueFrom: {secretKeyRef: {name: storscale-env, key: PLATFORM_OAUTH_SECRET}}}
+            - {name: STORE_URL, value: "http://buckets:9000"}
+            - {name: STORE_ACCESS_KEY, valueFrom: {secretKeyRef: {name: storscale-env, key: PLATFORM_STORE_ACCESS_KEY}}}
+            - {name: STORE_SECRET_KEY, valueFrom: {secretKeyRef: {name: storscale-env, key: PLATFORM_STORE_SECRET_KEY}}}
+            - {name: CATALOG_URL, value: "http://openmetadata:8585"}
+            - {name: SEMANTIC_URL, value: "http://semanticd:8000"}
+            - {name: AIRFLOW_URL, value: "http://airflow:8090/pipelines"}
+            - {name: AIRFLOW_USER, value: storscale-platform}
+            - {name: AIRFLOW_PASSWORD, valueFrom: {secretKeyRef: {name: storscale-env, key: AIRFLOW_PLATFORM_PASSWORD}}}
+          ports:
+            - {name: http, containerPort: 8080}
+          readinessProbe:
+            exec: {command: ["/usr/bin/platformd", "healthcheck"]}
+            periodSeconds: 5
+          volumeMounts:
+            - {name: catalog, mountPath: /catalog, readOnly: true}
+          {{- include "storscale.resources" (list "20m" "32Mi" "256Mi") | nindent 10 }}
+      volumes:
+        {{- include "storscale.filesVolume" (list . "tools" "tools") | nindent 8 }}
+        # The catalog's bot token, which catalog-sync keeps up to date.
+        - {name: catalog, secret: {secretName: catalog-token, optional: true}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: platformd
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "storscale.selector" (list .Release.Name "platformd") | nindent 4 }}
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-operator
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "storscale.selector" (list .Release.Name "platform-operator") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "storscale.selector" (list .Release.Name "platform-operator") | nindent 8 }}
+    spec:
+      serviceAccountName: storscale
+      initContainers:
+        {{- include "storscale.wait" (list . "setup" (list "job" "setup")) | nindent 8 }}
+        {{- include "storscale.wait" (list . "nessie" (list "url" "http://nessie:19120/api/v2/config")) | nindent 8 }}
+      containers:
+        - name: operator
+          image: {{ include "storscale.image" (list . "platformd") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          command: ["/usr/bin/platform-operator"]
+          env:
+            - {name: STORE_URL, value: "http://buckets:9000"}
+            - {name: BUCKETS_ACCESS_KEY, valueFrom: {secretKeyRef: {name: storscale-env, key: BUCKETS_ROOT_USER}}}
+            - {name: BUCKETS_SECRET_KEY, valueFrom: {secretKeyRef: {name: storscale-env, key: BUCKETS_ROOT_PASSWORD}}}
+            - {name: KEYCLOAK_DIRECT_URL, value: "http://keycloak:8080/sso"}
+            - {name: OPERATOR_CLIENT_SECRET, valueFrom: {secretKeyRef: {name: storscale-env, key: OPERATOR_CLIENT_SECRET}}}
+            - {name: RANGER_URL, value: "http://ranger-admin:6080"}
+            - {name: RANGER_PASSWORD, valueFrom: {secretKeyRef: {name: storscale-env, key: RANGER_PASSWORD}}}
+            - {name: NESSIE_URL, value: "http://nessie:19120"}
+          ports:
+            - {name: health, containerPort: 8081}
+          readinessProbe:
+            httpGet: {path: /healthz, port: health}
+            periodSeconds: 5
+          {{- include "storscale.resources" (list "20m" "32Mi" "256Mi") | nindent 10 }}
+      volumes:
+        {{- include "storscale.filesVolume" (list . "tools" "tools") | nindent 8 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: platform-operator
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "storscale.selector" (list .Release.Name "platform-operator") | nindent 4 }}
+  ports:
+    - {name: health, port: 8081, targetPort: health}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: semanticd
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "storscale.selector" (list .Release.Name "semanticd") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "storscale.selector" (list .Release.Name "semanticd") | nindent 8 }}
+    spec:
+      serviceAccountName: storscale
+      initContainers:
+        {{- include "storscale.wait" (list . "keycloak" (list "url" "http://keycloak:9000/health/ready")) | nindent 8 }}
+      containers:
+        - name: semanticd
+          image: {{ include "storscale.image" (list . "semanticd") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          env:
+            - {name: KEYCLOAK_URL, value: "{{ include "storscale.url" . }}/sso"}
+            - {name: KEYCLOAK_DIRECT_URL, value: "http://keycloak:8080/sso"}
+            - {name: MCP_URL, value: "{{ include "storscale.url" . }}/mcp"}
+            - {name: STORE_ACCESS_KEY, valueFrom: {secretKeyRef: {name: storscale-env, key: PLATFORM_STORE_ACCESS_KEY}}}
+            - {name: STORE_SECRET_KEY, valueFrom: {secretKeyRef: {name: storscale-env, key: PLATFORM_STORE_SECRET_KEY}}}
+          ports:
+            - {name: http, containerPort: 8000}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 5
+          volumeMounts:
+            - {name: tls, mountPath: /tls}
+          {{- include "storscale.resources" (list "20m" "160Mi" "512Mi") | nindent 10 }}
+      volumes:
+        {{- include "storscale.filesVolume" (list . "tools" "tools") | nindent 8 }}
+        - {name: tls, secret: {secretName: trino-tls}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: semanticd
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "storscale.selector" (list .Release.Name "semanticd") | nindent 4 }}
+  ports:
+    - {name: http, port: 8000, targetPort: http}

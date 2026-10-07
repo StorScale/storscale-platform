@@ -1,0 +1,96 @@
+# StorScale Platform's chart. The defaults run the whole platform on one
+# kind node (deploy/kind/cluster.yaml); `storscale up --k8s` installs it so.
+
+global:
+  # The platform's one address: people's browsers and the services use it.
+  domain: storscale.localhost
+  port: 8800
+  scheme: http
+
+# The images built from this repository (stack/*/Dockerfile and platformd's).
+images:
+  registry: ghcr.io/storscale
+  tag: ""             # defaults to the chart's appVersion
+  pullPolicy: IfNotPresent
+  platformd: platformd
+  tools: platform-tools
+  airflow: platform-airflow
+  superset: platform-superset
+  jupyterhub: platform-jupyterhub
+  notebook: platform-notebook
+  opensearch: platform-opensearch
+  semanticd: platform-semanticd
+  catalogSync: platform-catalog-sync
+
+# Everything else comes from its project's own image.
+upstream:
+  caddy: caddy:2.11.2-alpine
+  keycloak: quay.io/keycloak/keycloak:26.8.0
+  postgres: postgres:18-bookworm
+  rangerAdmin: apache/ranger:2.9.0
+  rangerDb: apache/ranger-db:2.9.0
+  rangerSolr: apache/ranger-solr:2.9.0
+  nessie: ghcr.io/projectnessie/nessie:0.108.8
+  trino: trinodb/trino:483
+  openmetadata: docker.getcollate.io/openmetadata/server:2.0.4
+  prometheus: prom/prometheus:v3.13.4
+  grafana: grafana/grafana:13.0.10
+  bucketsd: ghcr.io/storscale/bucketsd:1.12.0
+
+# The gateway: every address of the platform, as one Service. The platform's
+# names (domain, and catalog., access., s3. under it) must resolve to it from
+# inside the cluster too, as from people's browsers: through the domain's DNS
+# (an ingress or load balancer), or, on kind, through the cluster's DNS
+# (deploy/kind/dns.sh), as Compose's network aliases do.
+gateway:
+  service:
+    type: NodePort
+    nodePort: 30880   # kind maps the host's port 8800 here
+  ingress:
+    enabled: false
+    className: ""
+    tls: []
+
+# Trino's HTTPS port, for JDBC and CLI clients outside the cluster.
+trino:
+  service:
+    type: NodePort
+    nodePort: 30443   # kind maps the host's port 8443 here
+  memory: 1536Mi      # its heap is 80% of this
+
+# Every secret the platform needs, as `.env` holds them in Compose. Each one
+# is generated on install and kept on upgrade; give a value here to choose it.
+secrets: {}
+#  LAKEHOUSE_USER_PASSWORD: ...
+
+# The example people (alice, bob, carol) and their groups, from the realm.
+examples:
+  users: true
+
+buckets:
+  servers: 1
+  volumesPerServer: 4
+  storage: 10Gi
+  storageClassName: ""   # the cluster's default
+
+storage:
+  storageClassName: ""   # for the databases, Nessie, JupyterHub and the catalog
+  postgres: 8Gi
+  nessie: 2Gi
+  jupyterhub: 1Gi
+  opensearch: 4Gi
+
+notebooks:
+  memoryLimit: 1G
+  storage: 1Gi
+
+buckets-operator:
+  enabled: true
+  replicaCount: 1
+
+spark-operator:
+  enabled: true
+  spark:
+    jobNamespaces: [""]   # the release's namespace
+  webhook:
+    enable: false

@@ -1,0 +1,5 @@
+# The stack's local secrets stay out of the chart: the chart makes its own.
+files/.env
+__pycache__/
+*.pyc
+.DS_Store

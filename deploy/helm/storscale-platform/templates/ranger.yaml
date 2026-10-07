@@ -1,0 +1,137 @@
+# Apache Ranger: who may query what in Trino. Its database, Solr for its
+# audit log, and the admin server (at access.<domain>, through the gateway).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ranger-db
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  serviceName: ranger-db
+  selector:
+    matchLabels: {{- include "storscale.selector" (list .Release.Name "ranger-db") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "storscale.selector" (list .Release.Name "ranger-db") | nindent 8 }}
+    spec:
+      containers:
+        - name: postgres
+          image: {{ .Values.upstream.rangerDb }}
+          env:
+            - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: storscale-env, key: RANGER_PASSWORD}}}
+            - {name: RANGER_DB_USER, value: rangeradmin}
+            - {name: RANGER_DB_PASSWORD, valueFrom: {secretKeyRef: {name: storscale-env, key: RANGER_PASSWORD}}}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          ports:
+            - {name: postgres, containerPort: 5432}
+          readinessProbe:
+            exec: {command: ["pg_isready", "-U", "postgres", "-d", "ranger"]}
+            periodSeconds: 5
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+          {{- include "storscale.resources" (list "50m" "64Mi" "512Mi") | nindent 10 }}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- with .Values.storage.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources: {requests: {storage: 2Gi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ranger-db
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "storscale.selector" (list .Release.Name "ranger-db") | nindent 4 }}
+  ports:
+    - {name: postgres, port: 5432, targetPort: postgres}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ranger-solr
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "storscale.selector" (list .Release.Name "ranger-solr") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "storscale.selector" (list .Release.Name "ranger-solr") | nindent 8 }}
+    spec:
+      containers:
+        - name: solr
+          image: {{ .Values.upstream.rangerSolr }}
+          args: ["solr-precreate", "ranger_audits", "/opt/solr/server/solr/configsets/ranger_audits/"]
+          env:
+            - {name: SOLR_HEAP, value: 256m}
+          ports:
+            - {name: solr, containerPort: 8983}
+          {{- include "storscale.resources" (list "50m" "384Mi" "640Mi") | nindent 10 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ranger-solr
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "storscale.selector" (list .Release.Name "ranger-solr") | nindent 4 }}
+  ports:
+    - {name: solr, port: 8983, targetPort: solr}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ranger-admin
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "storscale.selector" (list .Release.Name "ranger-admin") | nindent 6 }}
+  strategy: {type: Recreate}
+  template:
+    metadata:
+      labels: {{- include "storscale.selector" (list .Release.Name "ranger-admin") | nindent 8 }}
+    spec:
+      serviceAccountName: storscale
+      initContainers:
+        {{- include "storscale.wait" (list . "solr" (list "url" "http://ranger-solr:8983/solr/")) | nindent 8 }}
+      containers:
+        - name: ranger
+          image: {{ .Values.upstream.rangerAdmin }}
+          # Ranger's start script pins a 1 GB heap (-Xms1g -Xmx1g): 512 MB is
+          # plenty for the platform's policies.
+          command: ["bash", "-c"]
+          args:
+            - |
+              f=/opt/ranger/admin/ews/ranger-admin-services.sh
+              chmod u+w $f && sed 's/^ranger_admin_max_heap_size=1g/ranger_admin_max_heap_size=512m/; s/-Xms1g/-Xms256m/' $f > /tmp/services.sh &&
+                cat /tmp/services.sh > $f && exec /home/ranger/scripts/ranger.sh
+          env:
+            - {name: RANGER_DB_TYPE, value: postgres}
+            - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: storscale-env, key: RANGER_PASSWORD}}}
+            - {name: RANGER_DB_USER, value: rangeradmin}
+            - {name: RANGER_DB_PASSWORD, valueFrom: {secretKeyRef: {name: storscale-env, key: RANGER_PASSWORD}}}
+          ports:
+            - {name: http, containerPort: 6080}
+          # unauthenticated, so it never counts toward Ranger's sign-in lockout
+          readinessProbe:
+            httpGet: {path: /login.jsp, port: http}
+            periodSeconds: 10
+            failureThreshold: 60
+          volumeMounts:
+            - {name: files-ranger, mountPath: /home/ranger/scripts/create-ranger-services.py, subPath: create-ranger-services.py}
+          {{- include "storscale.resources" (list "100m" "640Mi" "1Gi") | nindent 10 }}
+      volumes:
+        - {name: files-ranger, configMap: {name: files-ranger}}
+        {{- include "storscale.filesVolume" (list . "tools" "tools") | nindent 8 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ranger-admin
+  labels: {{- include "storscale.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "storscale.selector" (list .Release.Name "ranger-admin") | nindent 4 }}
+  ports:
+    - {name: http, port: 6080, targetPort: http}
