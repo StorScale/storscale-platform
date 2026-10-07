@@ -25,25 +25,34 @@ func toolsFor(platformURL string, groups []string, adminGroups []string) []tool 
 	if err != nil {
 		return nil
 	}
+	// The tools shown in the platform's frames are on paths of the platform's
+	// own address (one origin: Safari blocks the cookies of frames from any
+	// other); the ones that open in a tab of their own have names of their own.
+	on := func(path string) string {
+		v := *u
+		v.Path = path
+		return v.String()
+	}
 	at := func(sub, path string) string {
 		v := *u
 		v.Host = sub + "." + u.Host
 		v.Path = path
 		return v.String()
 	}
+	next := func(path string) string { return "?next=" + url.QueryEscape(path) }
 	tools := []tool{
 		{ID: "notebooks", Name: "Notebooks", Section: "work",
 			Description: "JupyterLab, in a notebook server of your own, with your own Buckets credentials.",
-			URL:         at("notebooks", "/hub/"), EmbedURL: at("notebooks", "/hub/oauth_login") + "?next=%2Fhub%2Fspawn"},
+			URL:         on("/notebooks/hub/"), EmbedURL: on("/notebooks/hub/oauth_login") + next("/notebooks/hub/spawn")},
 		{ID: "sql", Name: "SQL", Section: "work",
 			Description: "SQL Lab: query the lakehouse in Trino, as yourself.",
-			URL:         at("dashboards", "/sqllab/"), EmbedURL: at("dashboards", "/login/keycloak") + "?next=%2Fsqllab%2F"},
+			URL:         on("/dashboards/sqllab/"), EmbedURL: on("/dashboards/login/keycloak") + next("/dashboards/sqllab/")},
 		{ID: "dashboards", Name: "Dashboards", Section: "work",
 			Description: "Superset's dashboards and charts.",
-			URL:         at("dashboards", "/dashboard/list/"), EmbedURL: at("dashboards", "/login/keycloak") + "?next=%2Fdashboard%2Flist%2F"},
+			URL:         on("/dashboards/dashboard/list/"), EmbedURL: on("/dashboards/login/keycloak") + next("/dashboards/dashboard/list/")},
 		{ID: "pipelines", Name: "Pipelines", Section: "work",
 			Description: "Airflow: pipelines, their runs and their logs.",
-			URL:         at("pipelines", "/"), EmbedURL: at("pipelines", "/auth/login/keycloak") + "?next=%2F"},
+			URL:         on("/pipelines/"), EmbedURL: on("/pipelines/auth/login/keycloak") + next("/pipelines/")},
 		{ID: "catalog", Name: "Catalog", Section: "work",
 			Description: "OpenMetadata: every table and column, their lineage, and their checks.",
 			// In a tab of its own, through the gateway's launcher, which starts
@@ -53,7 +62,7 @@ func toolsFor(platformURL string, groups []string, adminGroups []string) []tool 
 			URL: at("catalog", "/_storscale/launch.html")},
 		{ID: "monitoring", Name: "Monitoring", Section: "work",
 			Description: "Grafana: the storage's dashboards and alerts.",
-			URL:         at("monitoring", "/"), EmbedURL: at("monitoring", "/login/generic_oauth")},
+			URL:         on("/monitoring/"), EmbedURL: on("/monitoring/login/generic_oauth")},
 	}
 	if slices.ContainsFunc(groups, func(g string) bool { return slices.Contains(adminGroups, g) }) {
 		tools = append(tools, tool{ID: "access", Name: "Access policies", Section: "admin",

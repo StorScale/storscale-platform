@@ -55,7 +55,7 @@ type server struct {
 	log      *slog.Logger
 	oauth    oauth2.Config
 	verifier *oidc.IDTokenVerifier
-	secure   bool // cookies only over HTTPS (or to localhost names, which browsers count as secure)
+	secure   bool // cookies only over HTTPS
 	now      func() time.Time
 	store    *store.Store    // nil: no projects
 	catalog  *catalog.Client // nil: no Flow view
@@ -70,7 +70,6 @@ func newServer(ctx context.Context, cfg config, log *slog.Logger) (*server, erro
 	if err != nil || pu.Host == "" {
 		return nil, fmt.Errorf("PLATFORM_URL %q isn't a URL", cfg.PlatformURL)
 	}
-	host := pu.Hostname()
 	// Browsers reach Keycloak at KEYCLOAK_URL, the tokens' issuer; platformd
 	// reaches it at KEYCLOAK_DIRECT_URL, for codes, tokens and keys.
 	keys := oidc.NewRemoteKeySet(ctx, cfg.direct()+"/protocol/openid-connect/certs")
@@ -87,7 +86,9 @@ func newServer(ctx context.Context, cfg config, log *slog.Logger) (*server, erro
 			},
 		},
 		verifier: oidc.NewVerifier(cfg.issuer(), keys, &oidc.Config{ClientID: cfg.ClientID}),
-		secure:   pu.Scheme == "https" || host == "localhost" || strings.HasSuffix(host, ".localhost"),
+		// Only over HTTPS: Chrome and Firefox count http://*.localhost as
+		// secure, but Safari doesn't, and drops Secure cookies there.
+		secure:   pu.Scheme == "https",
 		sessions: map[string]*session{},
 		logins:   map[string]*login{},
 	}

@@ -4,30 +4,45 @@ This directory is StorScale Platform on one machine: a Docker Compose project. `
 
 | Service | What it is | At |
 |---|---|---|
-| `gateway` | Caddy: the one domain, with a name per tool | |
+| `gateway` | Caddy: the platform's one address, with a path per tool | |
 | `platformd` | The platform's web app and its backend: Keycloak sign-in, the tools each person may open, projects | `http://storscale.localhost:8800` |
 | `platform-operator` | Applies projects to Keycloak, Ranger, Buckets and Nessie, and keeps them that way | |
-| `keycloak` | Sign-in for everything; realm `lakehouse`, with a signing key kept in a volume | `auth.` |
+| `keycloak` | Sign-in for everything; realm `lakehouse`, with a signing key kept in a volume | `/sso/` |
 | `buckets` | Buckets, one server with four drives (EC 2+2) | `s3.` |
 | `nessie`, `trino` | The Iceberg catalog and the SQL engine | Trino: `https://localhost:8443` |
 | `ranger-admin` (with `ranger-db`, `ranger-solr`) | Who may query what, and the audit log | `access.` |
-| `jupyterhub` | A notebook server per person | `notebooks.` |
-| `superset` (with `superset-db`) | SQL Lab and dashboards | `dashboards.` |
-| `airflow` (with its scheduler, DAG processor and `airflow-db`) | Pipelines | `pipelines.` |
-| `prometheus`, `grafana` | Monitoring; Grafana signs people in with Keycloak | `monitoring.` |
+| `jupyterhub` | A notebook server per person | `/notebooks/` |
+| `superset` (with `superset-db`) | SQL Lab and dashboards | `/dashboards/` |
+| `airflow` (with its scheduler, DAG processor and `airflow-db`) | Pipelines | `/pipelines/` |
+| `prometheus`, `grafana` | Monitoring; Grafana signs people in with Keycloak | `/monitoring/` |
 | `openmetadata` (with `openmetadata-db`, `openmetadata-search`) | The catalog: tables, lineage, data quality; signs people in with Keycloak | `catalog.` |
 | `catalog-sync` | Keeps the catalog in step: Trino's tables, the projects' checks | |
 | `setup`, `setup-trino` | One-off configuration, safe to run again | |
 
-## One domain
+## One address
 
-Every tool has a name under `STORSCALE_DOMAIN` (default `storscale.localhost`). All of them use one port, `STORSCALE_PORT` (default 8800):
+The platform is at `http://STORSCALE_DOMAIN:STORSCALE_PORT` (`storscale.localhost:8800`).
+
+**The tools shown in its frames are on paths of that address:**
+- `/notebooks/` is JupyterHub
+- `/dashboards/` is Superset
+- `/pipelines/` is Airflow
+- `/monitoring/` is Grafana
+- `/sso/` is Keycloak
+
+Each one is configured to run under its path (`c.JupyterHub.base_url`, `SUPERSET_APP_ROOT`, Airflow's `base_url`, `GF_SERVER_SERVE_FROM_SUB_PATH`, `KC_HTTP_RELATIVE_PATH`). That keeps them on the platform's origin, which matters for Safari: it blocks the cookies of frames from any other origin, subdomains included, so each tool's sign-in would fail inside the platform. The browser suite runs in WebKit as well as Chromium to keep this working.
+
+**The tools that open in a tab of their own keep names of their own:**
+- `catalog.` is OpenMetadata
+- `access.` is Ranger
+- `s3.` is Buckets' S3 API
+
+**Name resolution:**
 - **In the browser:** browsers resolve `*.localhost` to your own machine, so no hosts file is needed.
-- **Inside the stack:** the same names are network aliases of the gateway. So services reach each other at the addresses a browser uses. Keycloak issues every token for one issuer, `http://auth.storscale.localhost:8800/realms/lakehouse`, whoever asks.
+- **Inside the stack:** the same names are network aliases of the gateway. Services reach each other at the addresses a browser uses, and Keycloak issues every token for one issuer, `http://storscale.localhost:8800/sso/realms/lakehouse`.
+- **The libcurl exception:** libcurl resolves `*.localhost` names to loopback itself and never asks Docker's DNS. So anything that uses it (JupyterHub's HTTP client) calls Keycloak at `http://keycloak:8080/sso` directly.
 
-**One exception:** libcurl resolves `*.localhost` names to loopback itself and never asks Docker's DNS. Anything that uses libcurl (JupyterHub's HTTP client) calls Keycloak at `http://keycloak:8080` directly. The tokens it gets still name the gateway's address.
-
-To use another domain, set `STORSCALE_DOMAIN`, and make its names resolve to this machine (in a hosts file or DNS).
+To use another domain, set `STORSCALE_DOMAIN`, and make its names resolve to this machine.
 
 ## Projects
 
@@ -71,15 +86,10 @@ Each pipeline registers itself in the catalog before it reports, because OpenMet
 
 **Signing in to OpenMetadata.** Its sign-in uses the person's Keycloak session, the same way the other tools' do. That needs `OIDC_MAX_AGE`, because by default it demands a fresh password; OpenMetadata copies the setting into its database on first start. Its web app keeps its token in a service worker, so the platform opens the catalog in its own tab through `catalog.storscale.localhost:8800/_storscale/launch.html`. That page starts the worker before signing in.
 
-## In the platform's frame
-
-The platform shows the tools in frames on `http://storscale.localhost:8800`. Two things make that work:
-- **The gateway** lets only the platform frame Superset, Airflow and Grafana, with `frame-ancestors`. JupyterHub sets the same policy itself.
-- **Keycloak's sign-in form never appears in a frame:** the platform signs people in first. Each frame then opens its tool's own Keycloak sign-in, which finds the Keycloak session and returns at once.
 
 ## Memory
 
-The stack uses about 7.5 GB. The Java services' heaps are set explicitly (Keycloak, Nessie, Solr, OpenMetadata, OpenSearch, and Trino's 2 GB limit); without that, each JVM would size its heap from the machine's memory. Long-running services restart if they stop.
+The stack uses about 8 GB. The Java services' heaps are set explicitly (Keycloak, Nessie, Solr, OpenMetadata, OpenSearch, and Trino's 2 GB limit); without that, each JVM would size its heap from the machine's memory. Long-running services restart if they stop.
 
 Keycloak's signing key is made once, in the `keycloak-keys` volume, and kept. Tokens stay valid when Keycloak restarts, and Trino and Buckets keep the keys they've fetched. The realm itself is imported afresh on each start.
 

@@ -1,17 +1,22 @@
 # StorScale Platform, on one machine: `storscale up` runs this file.
 #
-# One domain, STORSCALE_DOMAIN (storscale.localhost), on one port,
-# STORSCALE_PORT (8800). The gateway serves each tool on a name of its own:
+# One address: STORSCALE_DOMAIN (storscale.localhost) on STORSCALE_PORT (8800).
+# The tools the platform shows in its frames are on paths of that address, so
+# every browser (Safari included) treats them, and their cookies, as the
+# platform's own:
 #
-#   http://storscale.localhost:8800              the platform: one sign-in, every tool
-#   http://auth.storscale.localhost:8800         Keycloak: sign-in for everything
-#   http://notebooks.storscale.localhost:8800    JupyterHub
-#   http://dashboards.storscale.localhost:8800   Superset
-#   http://pipelines.storscale.localhost:8800    Airflow
-#   http://monitoring.storscale.localhost:8800   Grafana
-#   http://catalog.storscale.localhost:8800      OpenMetadata: the catalog, lineage and data quality
-#   http://access.storscale.localhost:8800       Apache Ranger (administrators)
-#   http://s3.storscale.localhost:8800           Buckets' S3 API
+#   http://storscale.localhost:8800/              the platform: one sign-in, every tool
+#   http://storscale.localhost:8800/sso/          Keycloak: sign-in for everything
+#   http://storscale.localhost:8800/notebooks/    JupyterHub
+#   http://storscale.localhost:8800/dashboards/   Superset
+#   http://storscale.localhost:8800/pipelines/    Airflow
+#   http://storscale.localhost:8800/monitoring/   Grafana
+#
+# The tools that open in a tab of their own have names of their own:
+#
+#   http://catalog.storscale.localhost:8800       OpenMetadata: the catalog, lineage and data quality
+#   http://access.storscale.localhost:8800        Apache Ranger (administrators)
+#   http://s3.storscale.localhost:8800            Buckets' S3 API
 #
 # Browsers resolve *.localhost to this machine without a hosts file. Inside
 # the stack, the same names resolve to the gateway, so every service uses the
@@ -28,11 +33,11 @@ name: storscale
 
 x-urls: &urls
   PLATFORM_URL: http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}
-  KEYCLOAK_URL: http://auth.${STORSCALE_DOMAIN}:${STORSCALE_PORT}
-  NOTEBOOKS_URL: http://notebooks.${STORSCALE_DOMAIN}:${STORSCALE_PORT}
-  DASHBOARDS_URL: http://dashboards.${STORSCALE_DOMAIN}:${STORSCALE_PORT}
-  PIPELINES_URL: http://pipelines.${STORSCALE_DOMAIN}:${STORSCALE_PORT}
-  MONITORING_URL: http://monitoring.${STORSCALE_DOMAIN}:${STORSCALE_PORT}
+  KEYCLOAK_URL: http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}/sso
+  NOTEBOOKS_URL: http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}/notebooks
+  DASHBOARDS_URL: http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}/dashboards
+  PIPELINES_URL: http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}/pipelines
+  MONITORING_URL: http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}/monitoring
 
 x-tools: &tools
   build: ./tools
@@ -54,6 +59,7 @@ x-superset: &superset
   environment:
     <<: *urls
     SUPERSET_CONFIG_PATH: /app/pythonpath/superset_config.py
+    SUPERSET_APP_ROOT: /dashboards   # served at the platform's /dashboards/
   volumes:
     - ./superset:/app/pythonpath:ro
     - tls:/tls:ro
@@ -70,9 +76,9 @@ x-airflow: &airflow
     AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
     AIRFLOW__API__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
     AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
-    AIRFLOW__API__BASE_URL: http://pipelines.${STORSCALE_DOMAIN}:${STORSCALE_PORT}
+    AIRFLOW__API__BASE_URL: http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}/pipelines
     AIRFLOW__API__PORT: "8090"
-    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow:8090/execution/
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow:8090/pipelines/execution/
     AIRFLOW__CORE__LOAD_EXAMPLES: "False"
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "False"
     AIRFLOW__DAG_PROCESSOR__REFRESH_INTERVAL: "10"
@@ -109,14 +115,14 @@ x-openmetadata: &openmetadata
     AUTHENTICATION_PROVIDER: custom-oidc
     AUTHENTICATION_CLIENT_TYPE: confidential
     AUTHENTICATION_CLIENT_ID: openmetadata
-    AUTHENTICATION_AUTHORITY: http://auth.${STORSCALE_DOMAIN}:${STORSCALE_PORT}/realms/lakehouse
-    AUTHENTICATION_PUBLIC_KEYS: "[http://auth.${STORSCALE_DOMAIN}:${STORSCALE_PORT}/realms/lakehouse/protocol/openid-connect/certs,http://localhost:8585/api/v1/system/config/jwks]"
+    AUTHENTICATION_AUTHORITY: http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}/sso/realms/lakehouse
+    AUTHENTICATION_PUBLIC_KEYS: "[http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}/sso/realms/lakehouse/protocol/openid-connect/certs,http://localhost:8585/api/v1/system/config/jwks]"
     AUTHENTICATION_CALLBACK_URL: http://catalog.${STORSCALE_DOMAIN}:${STORSCALE_PORT}/callback
     AUTHENTICATION_JWT_PRINCIPAL_CLAIMS: "[preferred_username,email,sub]"
     OIDC_TYPE: Keycloak
     OIDC_CLIENT_ID: openmetadata
     OIDC_CLIENT_SECRET: ${OPENMETADATA_OAUTH_SECRET}
-    OIDC_DISCOVERY_URI: http://auth.${STORSCALE_DOMAIN}:${STORSCALE_PORT}/realms/lakehouse/.well-known/openid-configuration
+    OIDC_DISCOVERY_URI: http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}/sso/realms/lakehouse/.well-known/openid-configuration
     OIDC_CALLBACK: http://catalog.${STORSCALE_DOMAIN}:${STORSCALE_PORT}/callback
     OIDC_SERVER_URL: http://catalog.${STORSCALE_DOMAIN}:${STORSCALE_PORT}
     OIDC_SCOPE: openid email profile
@@ -150,11 +156,6 @@ services:
       default:
         aliases:
           - ${STORSCALE_DOMAIN}
-          - auth.${STORSCALE_DOMAIN}
-          - notebooks.${STORSCALE_DOMAIN}
-          - dashboards.${STORSCALE_DOMAIN}
-          - pipelines.${STORSCALE_DOMAIN}
-          - monitoring.${STORSCALE_DOMAIN}
           - catalog.${STORSCALE_DOMAIN}
           - access.${STORSCALE_DOMAIN}
           - s3.${STORSCALE_DOMAIN}
@@ -189,7 +190,9 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       # One issuer for everyone: tokens name the gateway's address, whoever asks.
-      KC_HOSTNAME: http://auth.${STORSCALE_DOMAIN}:${STORSCALE_PORT}
+      KC_HOSTNAME: http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}/sso
+      KC_HTTP_RELATIVE_PATH: /sso
+      KC_HTTP_MANAGEMENT_RELATIVE_PATH: /   # its health checks stay at :9000/health
       KC_PROXY_HEADERS: xforwarded
       KC_HEALTH_ENABLED: "true"
       # The realm's placeholders: people's password, redirect URIs, client secrets.
@@ -221,8 +224,8 @@ services:
     image: ${PLATFORMD_IMAGE}
     environment:
       PLATFORM_URL: http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}
-      KEYCLOAK_URL: http://auth.${STORSCALE_DOMAIN}:${STORSCALE_PORT}
-      KEYCLOAK_DIRECT_URL: http://keycloak:8080
+      KEYCLOAK_URL: http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}/sso
+      KEYCLOAK_DIRECT_URL: http://keycloak:8080/sso
       OIDC_CLIENT_SECRET: ${PLATFORM_OAUTH_SECRET}
       # The project store: a bucket in Buckets, with platformd's own account.
       STORE_URL: http://buckets:9000
@@ -249,7 +252,7 @@ services:
       STORE_URL: http://buckets:9000
       BUCKETS_ACCESS_KEY: ${BUCKETS_ROOT_USER}
       BUCKETS_SECRET_KEY: ${BUCKETS_ROOT_PASSWORD}
-      KEYCLOAK_DIRECT_URL: http://keycloak:8080
+      KEYCLOAK_DIRECT_URL: http://keycloak:8080/sso
       OPERATOR_CLIENT_SECRET: ${OPERATOR_CLIENT_SECRET}
       RANGER_URL: http://ranger-admin:6080
       RANGER_PASSWORD: ${RANGER_PASSWORD}
@@ -280,7 +283,7 @@ services:
       BUCKETS_ROOT_USER: ${BUCKETS_ROOT_USER}
       BUCKETS_ROOT_PASSWORD: ${BUCKETS_ROOT_PASSWORD}
       # People sign in with Keycloak; each of their groups names a Buckets policy.
-      MINIO_IDENTITY_OPENID_CONFIG_URL: http://auth.${STORSCALE_DOMAIN}:${STORSCALE_PORT}/realms/lakehouse/.well-known/openid-configuration
+      MINIO_IDENTITY_OPENID_CONFIG_URL: http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}/sso/realms/lakehouse/.well-known/openid-configuration
       MINIO_IDENTITY_OPENID_CLIENT_ID: lakehouse
       MINIO_IDENTITY_OPENID_CLAIM_NAME: groups
     volumes:
@@ -380,7 +383,7 @@ services:
     restart: unless-stopped
     image: trinodb/trino:483
     environment:
-      KEYCLOAK_URL: http://auth.${STORSCALE_DOMAIN}:${STORSCALE_PORT}
+      KEYCLOAK_URL: http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}/sso
       TRINO_S3_ACCESS_KEY: ${TRINO_S3_ACCESS_KEY}
       TRINO_S3_SECRET_KEY: ${TRINO_S3_SECRET_KEY}
       TRINO_SHARED_SECRET: ${TRINO_SHARED_SECRET}
@@ -440,7 +443,7 @@ services:
       setup: {condition: service_completed_successfully}
       notebook: {condition: service_completed_successfully}
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/hub/health')"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/notebooks/hub/health')"]
       interval: 5s
       retries: 60
 
@@ -473,7 +476,7 @@ services:
       superset-init: {condition: service_completed_successfully}
       setup-trino: {condition: service_completed_successfully}
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8088/health"]
+      test: ["CMD", "curl", "-sf", "http://localhost:8088/dashboards/health"]
       interval: 5s
       start_period: 30s
       retries: 60
@@ -502,7 +505,7 @@ services:
         airflow db migrate && airflow fab-db migrate &&
         airflow connections delete keycloak_pipelines >/dev/null 2>&1;
         airflow connections add keycloak_pipelines --conn-type http \
-          --conn-host auth.${STORSCALE_DOMAIN} --conn-port ${STORSCALE_PORT} \
+          --conn-host ${STORSCALE_DOMAIN} --conn-port ${STORSCALE_PORT} --conn-schema sso \
           --conn-login airflow-pipelines --conn-password "$$AIRFLOW_PIPELINES_SECRET" \
           --conn-description "The pipelines' Keycloak service account (client credentials)"
     depends_on:
@@ -518,7 +521,7 @@ services:
       setup-trino: {condition: service_completed_successfully}
       keycloak: {condition: service_healthy}
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8090/api/v2/monitor/health"]
+      test: ["CMD", "curl", "-sf", "http://localhost:8090/pipelines/api/v2/monitor/health"]
       interval: 5s
       start_period: 30s
       retries: 60
@@ -556,7 +559,8 @@ services:
     restart: unless-stopped
     image: grafana/grafana:13.0.10
     environment:
-      GF_SERVER_ROOT_URL: http://monitoring.${STORSCALE_DOMAIN}:${STORSCALE_PORT}
+      GF_SERVER_ROOT_URL: http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}/monitoring/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
       # The platform shows Grafana in a frame; the gateway says which pages may.
       GF_SECURITY_ALLOW_EMBEDDING: "true"
@@ -571,16 +575,16 @@ services:
       GF_AUTH_GENERIC_OAUTH_USE_PKCE: "true"
       GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP: "true"
       # Browsers go through the gateway; Grafana calls Keycloak directly.
-      GF_AUTH_GENERIC_OAUTH_AUTH_URL: http://auth.${STORSCALE_DOMAIN}:${STORSCALE_PORT}/realms/lakehouse/protocol/openid-connect/auth
-      GF_AUTH_GENERIC_OAUTH_TOKEN_URL: http://keycloak:8080/realms/lakehouse/protocol/openid-connect/token
-      GF_AUTH_GENERIC_OAUTH_API_URL: http://keycloak:8080/realms/lakehouse/protocol/openid-connect/userinfo
+      GF_AUTH_GENERIC_OAUTH_AUTH_URL: http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}/sso/realms/lakehouse/protocol/openid-connect/auth
+      GF_AUTH_GENERIC_OAUTH_TOKEN_URL: http://keycloak:8080/sso/realms/lakehouse/protocol/openid-connect/token
+      GF_AUTH_GENERIC_OAUTH_API_URL: http://keycloak:8080/sso/realms/lakehouse/protocol/openid-connect/userinfo
       GF_AUTH_GENERIC_OAUTH_LOGIN_ATTRIBUTE_PATH: preferred_username
       GF_AUTH_GENERIC_OAUTH_EMAIL_ATTRIBUTE_PATH: email
       GF_AUTH_GENERIC_OAUTH_GROUPS_ATTRIBUTE_PATH: groups
       GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH: "contains(groups[*], 'engineers') && 'Editor' || contains(groups[*], 'analysts') && 'Viewer'"
       GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_STRICT: "true"
       GF_AUTH_GENERIC_OAUTH_SKIP_ORG_ROLE_SYNC: "false"
-      GF_AUTH_SIGNOUT_REDIRECT_URL: http://auth.${STORSCALE_DOMAIN}:${STORSCALE_PORT}/realms/lakehouse/protocol/openid-connect/logout
+      GF_AUTH_SIGNOUT_REDIRECT_URL: http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}/sso/realms/lakehouse/protocol/openid-connect/logout
       GF_USERS_DEFAULT_THEME: dark
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
@@ -592,7 +596,7 @@ services:
       prometheus: {condition: service_healthy}
       keycloak: {condition: service_healthy}
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/monitoring/api/health"]
       interval: 5s
       retries: 60
 
@@ -655,8 +659,8 @@ services:
     build: ./catalog/sync
     image: storscale-catalog-sync
     environment:
-      KEYCLOAK_DIRECT_URL: http://keycloak:8080
-      PIPELINES_URL: http://pipelines.${STORSCALE_DOMAIN}:${STORSCALE_PORT}
+      KEYCLOAK_DIRECT_URL: http://keycloak:8080/sso
+      PIPELINES_URL: http://${STORSCALE_DOMAIN}:${STORSCALE_PORT}/pipelines
       OPERATOR_CLIENT_SECRET: ${OPERATOR_CLIENT_SECRET}
       OPENMETADATA_TRINO_PASSWORD: ${OPENMETADATA_TRINO_PASSWORD}
       STORE_ACCESS_KEY: ${PLATFORM_STORE_ACCESS_KEY}
@@ -699,7 +703,10 @@ services:
     image: mcr.microsoft.com/playwright/python:v1.63.0-noble
     command: ["sh", "-c", "pip install -q --root-user-action=ignore playwright==1.63.0 && python -u /tests/shell.py"]
     shm_size: 1gb   # Chromium's shared memory: Docker's 64 MB crashes it on heavier pages
+    oom_score_adj: 1000   # short of memory, the kernel stops the test browser, not the platform
     env_file: .env
+    environment:
+      SHELL_SWITCH: ${SHELL_SWITCH:-0}   # 1: also switch between tools in one page (CI)
     volumes:
       - ./tests:/tests:ro
     profiles: ["test"]

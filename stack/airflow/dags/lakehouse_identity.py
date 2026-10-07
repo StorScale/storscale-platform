@@ -31,7 +31,7 @@ REALM = "lakehouse"
 
 def token():
     c = BaseHook.get_connection("keycloak_pipelines")
-    r = requests.post(f"http://{c.host}:{c.port}/realms/{REALM}/protocol/openid-connect/token", timeout=30,
+    r = requests.post(f"http://{c.host}:{c.port}/{c.schema}/realms/{REALM}/protocol/openid-connect/token", timeout=30,
                       data={"grant_type": "client_credentials", "client_id": c.login, "client_secret": c.password})
     r.raise_for_status()
     return r.json()["access_token"]

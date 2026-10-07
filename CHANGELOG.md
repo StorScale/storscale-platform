@@ -15,6 +15,7 @@ All notable changes to StorScale Platform are recorded here, in the [Keep a Chan
   - **The Flow view:** each project's tables, the pipelines between them (column by column), and their checks, with failing checks called out. Its data comes from the catalog through `GET /api/projects/<name>/flow`.
   - **The Catalog** is on the platform's sidebar and opens in its own tab.
   - **The `catalog` suite:** bob runs the pipeline, and the suite finds its lineage and pipeline in the catalog, the failing check with its reason, both in alice's Flow view, and nothing for carol. It also checks that the catalog's sign-in needs no second password.
+- **The tools open inside the platform in Safari too.** They now sit on the platform's own address, at paths: `/notebooks/`, `/dashboards/`, `/pipelines/`, `/monitoring/`, and Keycloak at `/sso/`. They used to have names of their own (`notebooks.storscale.localhost`), and Safari blocks the cookies of frames from any other origin, so each tool's sign-in failed inside the platform. The browser suite now runs in WebKit as well as Chromium. platformd's session cookie is no longer marked Secure over plain HTTP, because Safari dropped it.
 - **The stack fits a 10 GB Docker VM:** the Java services' heaps are set (OpenMetadata, OpenSearch, Keycloak, Solr, Nessie, and a 2 GB limit for Trino), and long-running services restart if they stop. Running out of memory had killed Trino and the test browser.
 - **The notebook checks stop the servers they start.**
 - **Phase 2:** projects.

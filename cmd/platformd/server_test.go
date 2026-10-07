@@ -38,7 +38,7 @@ func newFakeKeycloak(t *testing.T) *fakeKeycloak {
 	if err != nil {
 		t.Fatal(err)
 	}
-	k := &fakeKeycloak{key: key, issuer: "http://auth.storscale.localhost:8800/realms/lakehouse"}
+	k := &fakeKeycloak{key: key, issuer: "http://storscale.localhost:8800/sso/realms/lakehouse"}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /realms/lakehouse/protocol/openid-connect/certs", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{Key: &key.PublicKey, KeyID: "k1", Algorithm: "RS256", Use: "sig"}}})
@@ -71,7 +71,7 @@ func newTestServer(t *testing.T, k *fakeKeycloak) *httptest.Server {
 	web := t.TempDir()
 	os.WriteFile(filepath.Join(web, "index.html"), []byte("<!doctype html><title>StorScale Platform</title>"), 0o644)
 	cfg := config{
-		PlatformURL: "http://storscale.localhost:8800", KeycloakURL: "http://auth.storscale.localhost:8800",
+		PlatformURL: "http://storscale.localhost:8800", KeycloakURL: "http://storscale.localhost:8800/sso",
 		KeycloakDirectURL: k.URL, Realm: "lakehouse", ClientID: "platform", ClientSecret: "s3cret",
 		Groups: []string{"analysts", "engineers"}, AdminGroups: []string{"engineers"}, WebDir: web,
 	}
@@ -113,8 +113,8 @@ func signIn(t *testing.T, ts *httptest.Server, k *fakeKeycloak, person map[strin
 	}
 	for _, c := range res.Cookies() {
 		if c.Name == sessionCookie {
-			if !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteLaxMode {
-				t.Errorf("session cookie %+v: want HttpOnly, Secure (localhost names count as secure), SameSite=Lax", c)
+			if !c.HttpOnly || c.Secure || c.SameSite != http.SameSiteLaxMode {
+				t.Errorf("session cookie %+v: want HttpOnly, SameSite=Lax, and not Secure over http (Safari would drop it)", c)
 			}
 			return c, res.Header.Get("Location")
 		}
@@ -270,7 +270,8 @@ func TestSafeNext(t *testing.T) {
 
 func TestToolsFollowThePlatformsAddress(t *testing.T) {
 	tools := toolsFor("https://data.example.com", []string{"analysts"}, []string{"engineers"})
-	if tools[0].URL != "https://notebooks.data.example.com/hub/" || !strings.HasPrefix(tools[1].EmbedURL, "https://dashboards.data.example.com/login/keycloak?next=") {
+	if tools[0].URL != "https://data.example.com/notebooks/hub/" || tools[1].EmbedURL != "https://data.example.com/dashboards/login/keycloak?next=%2Fdashboards%2Fsqllab%2F" ||
+		tools[4].URL != "https://catalog.data.example.com/_storscale/launch.html" {
 		t.Errorf("tools: %+v", tools[:2])
 	}
 }

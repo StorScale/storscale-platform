@@ -142,12 +142,13 @@ func printURLs(st *stack) {
 	fmt.Printf("StorScale Platform %s\n\n", version())
 	for _, t := range []struct{ name, sub, path string }{
 		{"The platform", "", "/"},
-		{"Notebooks (JupyterHub)", "notebooks", "/"},
-		{"SQL and dashboards (Superset)", "dashboards", "/"},
-		{"Pipelines (Airflow)", "pipelines", "/"},
-		{"Monitoring (Grafana)", "monitoring", "/"},
+		{"Notebooks (JupyterHub)", "", "/notebooks/"},
+		{"SQL and dashboards (Superset)", "", "/dashboards/"},
+		{"Pipelines (Airflow)", "", "/pipelines/"},
+		{"Monitoring (Grafana)", "", "/monitoring/"},
+		{"Catalog (OpenMetadata)", "catalog", "/_storscale/launch.html"},
 		{"Access policies (Ranger)", "access", "/"},
-		{"Sign-in (Keycloak)", "auth", "/realms/lakehouse/account/"},
+		{"Sign-in (Keycloak)", "", "/sso/realms/lakehouse/account/"},
 		{"S3 (Buckets)", "s3", ""},
 	} {
 		fmt.Printf("  %-31s %s%s\n", t.name, base(t.sub), t.path)

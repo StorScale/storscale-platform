@@ -48,6 +48,8 @@ jobs:
       # --dir stack: this checkout's stack, building the platform's own images from source
       - run: bin/storscale up --dir stack
       - run: bin/storscale test --dir stack
+        env:
+          SHELL_SWITCH: "1"   # the runner has the memory to switch between tools in one page
       - name: What went wrong
         if: failure()
         run: |

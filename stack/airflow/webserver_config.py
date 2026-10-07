@@ -8,6 +8,10 @@ from flask_appbuilder.security.manager import AUTH_OAUTH
 from airflow.providers.fab.auth_manager.security_manager.override import FabAirflowSecurityManagerOverride
 
 KEYCLOAK = os.environ["KEYCLOAK_URL"] + "/realms/lakehouse"
+# Its own cookie name: the platform's tools share one address (Superset's
+# Flask app would otherwise use "session" too).
+SESSION_COOKIE_NAME = "airflow_session"
+
 AUTH_TYPE = AUTH_OAUTH
 OAUTH_PROVIDERS = [{
     "name": "keycloak", "icon": "fa-key", "token_key": "access_token",

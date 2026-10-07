@@ -172,13 +172,13 @@
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
       "redirectUris": [
-        "http://notebooks.${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}/hub/oauth_callback"
+        "http://${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}/notebooks/hub/oauth_callback"
       ],
       "webOrigins": [
-        "http://notebooks.${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}"
+        "http://${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}"
       ],
       "attributes": {
-        "post.logout.redirect.uris": "http://notebooks.${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}/*"
+        "post.logout.redirect.uris": "http://${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}/notebooks/*"
       },
       "protocolMappers": [
         {
@@ -215,10 +215,10 @@
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
       "redirectUris": [
-        "http://dashboards.${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}/oauth-authorized/keycloak"
+        "http://${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}/dashboards/oauth-authorized/keycloak"
       ],
       "webOrigins": [
-        "http://dashboards.${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}"
+        "http://${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}"
       ],
       "protocolMappers": [
         {
@@ -245,10 +245,10 @@
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
       "redirectUris": [
-        "http://monitoring.${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}/login/generic_oauth"
+        "http://${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}/monitoring/login/generic_oauth"
       ],
       "webOrigins": [
-        "http://monitoring.${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}"
+        "http://${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}"
       ],
       "protocolMappers": [
         {
@@ -265,7 +265,7 @@
         }
       ],
       "attributes": {
-        "post.logout.redirect.uris": "http://monitoring.${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}/*"
+        "post.logout.redirect.uris": "http://${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}/monitoring/*"
       }
     },
     {
@@ -278,10 +278,10 @@
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
       "redirectUris": [
-        "http://pipelines.${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}/auth/oauth-authorized/keycloak"
+        "http://${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}/pipelines/auth/oauth-authorized/keycloak"
       ],
       "webOrigins": [
-        "http://pipelines.${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}"
+        "http://${STORSCALE_DOMAIN:storscale.localhost}:${STORSCALE_PORT:8800}"
       ],
       "protocolMappers": [
         {

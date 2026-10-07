@@ -1,51 +1,59 @@
-# The gateway: one domain, a name per tool, all on STORSCALE_PORT.
+# The gateway: the platform's one address, STORSCALE_DOMAIN on STORSCALE_PORT.
+#
+# The tools the platform shows in its frames are on paths of that address:
+# one origin, so every browser treats them, and their cookies, as the
+# platform's own. (Safari blocks the cookies of frames from any other origin,
+# subdomains included, which would stop each tool's sign-in.) Each tool is
+# configured to run under its path.
 {
 	auto_https off
 	admin off
 }
 
-# A tool the platform shows in a frame: only the platform's pages may frame
-# it. (A tool that says so itself, as JupyterHub does, keeps its own policy.)
-(framed) {
+(tool) {
 	reverse_proxy {args[0]} {
 		header_down -X-Frame-Options
 	}
-	header ?Content-Security-Policy "frame-ancestors 'self' http://{$STORSCALE_DOMAIN}:{$STORSCALE_PORT}"
+	# Only the platform's pages may frame a tool. (A tool that says so
+	# itself, as JupyterHub does, keeps its own policy.)
+	header ?Content-Security-Policy "frame-ancestors 'self'"
 }
 
 http://{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
-	reverse_proxy platformd:8080
+	redir /sso /sso/
+	redir /notebooks /notebooks/
+	redir /dashboards /dashboards/
+	redir /pipelines /pipelines/
+	redir /monitoring /monitoring/
+	handle /sso/* {
+		reverse_proxy keycloak:8080
+	}
+	handle /notebooks/* {
+		import tool jupyterhub:8000
+	}
+	handle /dashboards/* {
+		import tool superset:8088
+	}
+	handle /pipelines/* {
+		import tool airflow:8090
+	}
+	handle /monitoring/* {
+		import tool grafana:3000
+	}
+	handle {
+		reverse_proxy platformd:8080
+	}
 }
 
-http://auth.{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
-	reverse_proxy keycloak:8080
-}
-
-http://notebooks.{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
-	import framed jupyterhub:8000
-}
-
-http://dashboards.{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
-	import framed superset:8088
-}
-
-http://pipelines.{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
-	import framed airflow:8090
-}
-
-http://monitoring.{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
-	import framed grafana:3000
-}
-
+# The tools that open in a tab of their own keep names of their own.
 http://catalog.{$STORSCALE_DOMAIN}:{$STORSCALE_PORT} {
 	# The platform's way in: starts OpenMetadata's service worker, then signs in.
 	handle /_storscale/* {
 		root * /srv
 		file_server
-		header ?Content-Security-Policy "frame-ancestors 'self' http://{$STORSCALE_DOMAIN}:{$STORSCALE_PORT}"
 	}
 	handle {
-		import framed openmetadata:8585
+		reverse_proxy openmetadata:8585
 	}
 }
 

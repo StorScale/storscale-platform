@@ -19,7 +19,7 @@ People sign in once to one place. They work in **projects**: a project brings to
 
 ## Try it
 
-You need Docker with Compose 2.24 or later, about 10 GB of memory for Docker (the stack uses about 7.5 GB), and Go 1.26 or later to build the command.
+You need Docker with Compose 2.24 or later, about 10 GB of memory for Docker (the stack uses about 8 GB), and Go 1.26 or later to build the command.
 
 ```bash
 go build -o bin/storscale ./cmd/storscale
@@ -33,10 +33,10 @@ One Keycloak sign-in covers the platform and every tool in it: JupyterHub, Super
 
 | | |
 |---|---|
-| Notebooks (JupyterHub) | http://notebooks.storscale.localhost:8800 |
-| SQL and dashboards (Superset) | http://dashboards.storscale.localhost:8800 |
-| Pipelines (Airflow) | http://pipelines.storscale.localhost:8800 |
-| Monitoring (Grafana) | http://monitoring.storscale.localhost:8800 |
+| Notebooks (JupyterHub) | http://storscale.localhost:8800/notebooks/ |
+| SQL and dashboards (Superset) | http://storscale.localhost:8800/dashboards/ |
+| Pipelines (Airflow) | http://storscale.localhost:8800/pipelines/ |
+| Monitoring (Grafana) | http://storscale.localhost:8800/monitoring/ |
 | Catalog (OpenMetadata) | http://catalog.storscale.localhost:8800 (opens in its own tab) |
 | Access policies (Ranger) | http://access.storscale.localhost:8800 |
 | Trino, for JDBC and CLI clients | https://localhost:8443 |

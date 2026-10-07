@@ -7,7 +7,7 @@
 //
 //	PLATFORM_URL          the platform's address, as browsers see it (http://storscale.localhost:8800)
 //	KEYCLOAK_URL          Keycloak, as browsers see it: the tokens' issuer is KEYCLOAK_URL/realms/REALM
-//	KEYCLOAK_DIRECT_URL   Keycloak, as platformd reaches it (http://keycloak:8080); default KEYCLOAK_URL
+//	KEYCLOAK_DIRECT_URL   Keycloak, as platformd reaches it (http://keycloak:8080/sso); default KEYCLOAK_URL
 //	KEYCLOAK_REALM        the realm (lakehouse)
 //	OIDC_CLIENT_ID        platformd's Keycloak client (platform)
 //	OIDC_CLIENT_SECRET    and its secret

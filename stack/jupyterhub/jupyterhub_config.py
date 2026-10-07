@@ -9,7 +9,7 @@ c = get_config()  # noqa: F821 (JupyterHub provides it)
 # directly: its HTTP client (libcurl) resolves *.localhost names to the hub's
 # own loopback, not to the gateway. Tokens name the gateway's address either way.
 KEYCLOAK = os.environ["KEYCLOAK_URL"] + "/realms/lakehouse/protocol/openid-connect"
-KEYCLOAK_DIRECT = "http://keycloak:8080/realms/lakehouse/protocol/openid-connect"
+KEYCLOAK_DIRECT = "http://keycloak:8080/sso/realms/lakehouse/protocol/openid-connect"
 
 # --- Sign-in: Keycloak, through OpenID Connect ---------------------------------------
 c.JupyterHub.authenticator_class = "generic-oauth"
@@ -49,7 +49,7 @@ c.JupyterHub.load_roles = [
 # --- In the platform's frame ---------------------------------------------------------
 # The platform (PLATFORM_URL) shows the hub and each notebook server in a frame;
 # no other page may.
-FRAMED_BY = {"Content-Security-Policy": f"frame-ancestors 'self' {os.environ['PLATFORM_URL']}"}
+FRAMED_BY = {"Content-Security-Policy": "frame-ancestors 'self'"}  # the platform is the same origin
 c.JupyterHub.tornado_settings = {"headers": FRAMED_BY}
 
 # --- Notebooks: a container per person -------------------------------------------------
@@ -62,8 +62,11 @@ c.DockerSpawner.notebook_dir = "/home/jovyan/work"
 c.DockerSpawner.volumes = {"storscale-notebooks-{username}": "/home/jovyan/work"}
 c.DockerSpawner.environment = {"BUCKETS_ENDPOINT": "http://buckets:9000", "BUCKETS_REGION": "us-east-1"}
 c.Spawner.start_timeout = 120
+c.Spawner.http_timeout = 120  # a notebook server's first start can be slow on a busy machine
 c.DockerSpawner.args = ["--ServerApp.tornado_settings=" + json.dumps({"headers": FRAMED_BY})]
 
+# At the platform's /notebooks/: the same address as the platform, so its cookies are first-party.
+c.JupyterHub.base_url = "/notebooks/"
 c.JupyterHub.hub_ip = "0.0.0.0"
 c.JupyterHub.hub_connect_ip = "jupyterhub"
 c.JupyterHub.cookie_secret_file = "/srv/jupyterhub/data/cookie_secret"

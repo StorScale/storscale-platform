@@ -26,7 +26,7 @@ from botocore.exceptions import ClientError
 from lakekit import check, env, finish, s3
 
 PROM = "http://prometheus:9090/api/v1"
-GRAFANA = "http://grafana:3000"
+GRAFANA = "http://grafana:3000/monitoring"
 GRAFANA_URL = os.environ["MONITORING_URL"]  # through the gateway, as a browser
 DASHBOARDS = "/dashboards/*.json"
 VARS = {"$namespace": "local", "$cluster": "store", "${namespace}": "local", "${cluster}": "store",

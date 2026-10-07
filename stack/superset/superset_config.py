@@ -7,6 +7,9 @@ from flask_appbuilder.security.manager import AUTH_OAUTH
 from superset.security import SupersetSecurityManager
 
 SECRET_KEY = os.environ["SUPERSET_SECRET_KEY"]
+# Its own cookie name: the platform's tools share one address (Airflow's
+# Flask app would otherwise use "session" too).
+SESSION_COOKIE_NAME = "superset_session"
 SQLALCHEMY_DATABASE_URI = (f"postgresql+psycopg2://superset:{os.environ['SUPERSET_DB_PASSWORD']}"
                            "@superset-db:5432/superset")
 

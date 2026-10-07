@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import { Tool } from "../api";
 
-// ToolFrames shows the active tool in a frame. A tool's frame stays loaded
-// once opened, so switching between tools keeps each one where it was.
+// ToolFrames shows the active tool in a frame. The last few tools used stay
+// loaded, so switching between them keeps each where it was; older ones are
+// let go (each is a whole app), and load again when opened.
+const KEEP = 2;
 export default function ToolFrames({ tools, active }: { tools: Tool[]; active?: string }) {
   const [opened, setOpened] = useState<string[]>([]);
   const [reloads, setReloads] = useState<Record<string, number>>({});
   useEffect(() => {
-    if (active && !opened.includes(active)) setOpened((o) => [...o, active]);
+    if (active && opened[opened.length - 1] !== active) setOpened((o) => [...o.filter((id) => id !== active), active].slice(-KEEP));
   }, [active, opened]);
 
   const tool = tools.find((t) => t.id === active);

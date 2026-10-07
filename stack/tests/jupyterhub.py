@@ -15,6 +15,7 @@ Jupyter Server API:
   5. what notebooks write is in Buckets, under each person's prefix.
 """
 import html
+from urllib.parse import urlparse
 import json
 import os
 import re
@@ -41,7 +42,7 @@ def sign_in(user):
 
 def hub_xsrf(s):
     """The hub's XSRF cookie. A running notebook server sets one of its own, under /user/<name>/."""
-    return next((c.value for c in s.cookies if c.name == "_xsrf" and c.path.startswith("/hub")), "")
+    return next((c.value for c in s.cookies if c.name == "_xsrf" and c.path.startswith(urlparse(HUB).path + "/hub")), "")
 
 
 def hub_api(s, method, path, **kw):
