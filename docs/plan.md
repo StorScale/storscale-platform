@@ -155,6 +155,14 @@ Each phase ends with a gate: an end-to-end test like the examples' `test.py`, ru
 - **Projects:** `Project` resources. platformd and the operator use the Kubernetes API as the project store, in place of the Buckets bucket that Compose uses.
 - **Tests:** `storscale test --k8s` runs the same suites in a pod in the release's namespace. CI installs the chart on kind and runs them.
 
+**Phase 5 delivered (2026-10-07):**
+- The chart and `storscale --k8s`, as above, with the Buckets operator, the Spark Operator, KubeSpawner and Project resources.
+- One PostgreSQL for the tools' metadata (Airflow, Superset, OpenMetadata) instead of three, keeping their Service names.
+- Every suite passes on kind, unchanged except two:
+  - The monitoring suite fails a drive from a pod beside Buckets', which mounts the drive's volume (bucketsd's image has no shell).
+  - The setup steps create the `sales` project as a Project resource.
+- Still to come: a Spark suite (the operator is installed, but nothing runs on it yet), and the browser suite's run on a laptop's kind cluster, which runs out of memory in a 10 GB VM; CI runs it.
+
 ## The semantic layer, and agents
 
 People define what the business means once: entities (customer, order), dimensions (region, month), measures and metrics (revenue, active customers), and how tables join. People, dashboards and AI agents then ask for *metrics*, not SQL. They get the same answer, under the same access rules.

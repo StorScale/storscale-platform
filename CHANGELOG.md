@@ -5,6 +5,17 @@ All notable changes to StorScale Platform are recorded here, in the [Keep a Chan
 ## [Unreleased]
 
 ### Added
+- **Phase 5: Kubernetes.**
+  - **A Helm chart, `deploy/helm/storscale-platform`,** runs the whole platform with the stack's own configuration (through a `files/` link to `stack/`). Each Compose service keeps its name as a Kubernetes Service, so the tools' settings and the checks work unchanged.
+  - **Dependencies:** Buckets runs under its operator (a `BucketsCluster` named `buckets`, from `oci://ghcr.io/storscale/charts/buckets-operator`), and the Spark Operator is installed (Kubeflow's chart).
+  - **Notebooks are pods:** JupyterHub uses KubeSpawner on Kubernetes, with a volume per person.
+  - **Projects are `Project` resources on Kubernetes.** platformd and the operator keep them through the Kubernetes API (`PROJECT_STORE=kubernetes`). The operator's finalizer keeps a deleted project until its access has been undone. A copy of each project and its status stays in the bucket, for the services that read projects there.
+  - **Secrets** are generated on install and kept on upgrade (the Secret `storscale-env`), unless given in values. So are Trino's certificate and the realm's signing key. Files that one service writes for others become Secrets: the catalog's bot token, and Prometheus' Buckets token.
+  - **Setup steps are Jobs,** named after the release's revision so each upgrade runs them again. Services wait for the steps they need, as Compose's `depends_on` does.
+  - **One address:** on kind, one rule in the cluster's DNS makes the platform's names resolve to the gateway inside the cluster, as Compose's network aliases do (`deploy/kind/dns.sh`).
+  - **`storscale up|status|logs|test|down --k8s`** runs the platform on a kind cluster of its own. From a checkout, it builds the images (`deploy/kind/images.sh`) and uses the checkout's chart; otherwise it installs the published chart at its version.
+  - **`helm test`** runs the end-to-end suites. Every suite passes on kind.
+  - **CI** installs the chart on kind and runs every suite. Releases publish the chart's images (`ghcr.io/storscale/platform-*`) and the chart (`oci://ghcr.io/storscale/charts/storscale-platform`).
 - **A redesigned web app: the project is the frame.** The platform's look was a sidebar of tools. It's now one product, built around the project you're working in.
   - **A top bar on every page:** a project switcher, search over the project's tables, columns, metrics and pipelines (press `/`), the tools, and your account. There's one design system: IBM Plex Sans and Mono, one accent colour, and colour only for meaning (green passing, red failing, amber "limited for you").
   - **Home:** your projects with their tables, metrics, checks and last run; what needs attention (failing checks, failed runs); and recent pipeline runs.
@@ -27,6 +38,7 @@ All notable changes to StorScale Platform are recorded here, in the [Keep a Chan
   - Ranger's admin server runs with a 512 MB heap instead of the 1 GB its start script pins.
   - Trino gets 1.5 GB instead of 2 GB, a heap of about 1.2 GB, and at most 512 MB for a query. The kernel had been stopping it when the VM ran short.
   - The browser suite waits for the pipeline run it starts to finish, so it never overlaps another suite's run.
+- **The lakehouse setup step keeps Superset's Ranger policies.** It used to remove them, until the next step put them back, so every upgrade broke Superset's queries for about a minute.
 - **Buckets 1.12.0**, up from 1.7.0, which frees what it allocates.
 - **The catalog keeps working when the disk is nearly full.** OpenSearch made the catalog's indices read-only once the disk was 95% full, and then the pipeline's lineage reports hung until they timed out. That's the default for a cluster; on one node on a laptop, the disk thresholds are now off.
 - The plan: a semantic layer that agents can use (phase 4). MetricFlow holds the definitions, there's an editor in the shell, and an MCP server lets agents query as the person or service account asking, under Ranger's rules.
