@@ -97,6 +97,13 @@ def mark_done(step, revision):
     _put("configmaps", DONE, {"data": data})
 
 
+def delete_pods(selector):
+    """Delete the pods with these labels (their controller makes new ones)."""
+    r = _api("DELETE", "pods", params={"labelSelector": selector})
+    r.raise_for_status()
+    return [i["metadata"]["name"] for i in r.json().get("items", [])]
+
+
 def run_with_volume(beside, claim, command, user=65532):
     """Run a command in a pod of its own with the volume claim mounted at
     /volume, on the node of the pod `beside` (a ReadWriteOnce volume is

@@ -39,7 +39,7 @@ All notable changes to StorScale Platform are recorded here, in the [Keep a Chan
   - Trino gets 1.5 GB instead of 2 GB, a heap of about 1.2 GB, and at most 512 MB for a query. The kernel had been stopping it when the VM ran short.
   - The browser suite waits for the pipeline run it starts to finish, so it never overlaps another suite's run.
 - **Kubernetes, from CI's first full run:**
-  - **People could get no Buckets credentials from a Keycloak token** when Buckets started before Keycloak: it reads Keycloak's OpenID configuration only as it starts. The first setup step now checks, and restarts Buckets' server if needed.
+  - **People could get no Buckets credentials from a Keycloak token** when Buckets started before Keycloak: it reads Keycloak's OpenID configuration only as it starts. The first setup step now checks, and if so starts Buckets afresh: on Kubernetes it replaces Buckets' pods, and in Compose it restarts its server.
   - **Ranger's admin server gets 1.5 GiB.** At 1 GiB it was restarted, and each restart cost ten minutes, while its start script waited out the mark the interrupted one left.
   - **Notebooks may be shown in the platform's frame.** KubeSpawner dropped the setting that allows it, because no command was given.
   - **`storscale up --k8s` says what it's waiting for** every half minute: a setup step, an image, a crash. It stops early when a pod is stuck. Before, it waited in silence.

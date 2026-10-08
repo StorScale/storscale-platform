@@ -317,15 +317,18 @@ def s3_as(user, web_token=None):
               aws_session_token=c["SessionToken"])
 
 
-def ensure_buckets_identity(timeout=300):
+def ensure_buckets_identity(timeout=600):
     """Make sure Buckets has its Keycloak sign-in settings loaded: people's
     Keycloak tokens must get them Buckets credentials (STS). Buckets reads
-    the OpenID configuration when it starts, and if Keycloak wasn't up yet
-    (in Kubernetes nothing orders the two), it never loads it. Then this
-    restarts Buckets' server, now that Keycloak is up, and waits for STS."""
-    from botocore.exceptions import ClientError
+    Keycloak's OpenID configuration only as it starts, and in Kubernetes
+    nothing orders the two (its pods are its operator's): if it started
+    first, it never loads it. Then this starts Buckets afresh, now that
+    Keycloak is up (in Kubernetes, its pods are replaced; in Compose, its
+    server restarted), and waits for STS to work."""
+    from botocore.exceptions import BotoCoreError, ClientError
 
-    def sts_works():
+    def sts():
+        """True: it works; False: Buckets has no OpenID settings; None: it isn't answering."""
         try:
             s3_as("bob")   # credentials from his Keycloak token: what STS is for
             return True
@@ -333,22 +336,31 @@ def ensure_buckets_identity(timeout=300):
             if e.response["Error"].get("Code") in ("InvalidParameterValue", "InvalidIdentityToken"):
                 return False
             raise
+        except BotoCoreError:   # connection refused or reset: starting, or restarting
+            return None
 
-    if sts_works():
-        return
-    log("Buckets: its Keycloak sign-in settings didn't load (it started before Keycloak); restarting it")
-    mc("alias", "set", "buckets", BUCKETS, env["BUCKETS_ROOT_USER"], env["BUCKETS_ROOT_PASSWORD"])
-    mc("admin", "service", "restart", "buckets", check=False)
     deadline = time.time() + timeout
+    state = sts()
+    while state is None and time.time() < deadline:   # wait for it to answer at all
+        time.sleep(5)
+        state = sts()
+    if state:
+        return
+    if state is None:
+        sys.exit("setup: Buckets isn't answering")
+    log("Buckets: its Keycloak sign-in settings didn't load (it started before Keycloak); starting it again")
+    import k8s
+    if k8s.in_cluster():
+        log("Buckets: replaced pods " + ", ".join(k8s.delete_pods("buckets.io/cluster=buckets")))
+    else:
+        mc("alias", "set", "buckets", BUCKETS, env["BUCKETS_ROOT_USER"], env["BUCKETS_ROOT_PASSWORD"])
+        mc("admin", "service", "restart", "buckets", check=False)
     while time.time() < deadline:
         time.sleep(5)
-        try:
-            if sts_works():
-                log("Buckets: people sign in with Keycloak")
-                return
-        except Exception:  # noqa: BLE001 (still restarting)
-            pass
-    sys.exit("setup: Buckets doesn't take Keycloak tokens (STS) after a restart")
+        if sts():
+            log("Buckets: people sign in with Keycloak")
+            return
+    sys.exit("setup: Buckets doesn't take Keycloak tokens (STS), even started after Keycloak")
 
 
 def keys(client, bucket, prefix=""):
