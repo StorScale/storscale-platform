@@ -4,6 +4,10 @@ All notable changes to StorScale Platform are recorded here, in the [Keep a Chan
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-08
+
+The first release: phases 0 to 5 of [the plan](docs/plan.md).
+
 ### Added
 - **Phase 5: Kubernetes.**
   - **A Helm chart, `deploy/helm/storscale-platform`,** runs the whole platform with the stack's own configuration (through a `files/` link to `stack/`). Each Compose service keeps its name as a Kubernetes Service, so the tools' settings and the checks work unchanged.

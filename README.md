@@ -43,7 +43,7 @@ One Keycloak sign-in covers the platform and every tool in it: JupyterHub, Super
 | Access policies (Ranger) | http://access.storscale.localhost:8800 |
 | Trino, for JDBC and CLI clients | https://localhost:8443 |
 
-Until the first release publishes the platform's image, use `--dir stack` from a checkout. Without it, `storscale` runs the stack built into the binary, which pulls the released image.
+From a checkout, `--dir stack` builds the platform's images from it. Without it, `storscale` runs the stack built into the binary, with the released images (0.3.0 is the first release). On Kubernetes, without a checkout, `storscale up --k8s` installs the published chart, `oci://ghcr.io/storscale/charts/storscale-platform`, at its own version.
 
 `storscale down` stops it, and `storscale down --volumes` also deletes its data. [stack/README.md](stack/README.md) describes the services.
 
@@ -61,7 +61,7 @@ kubectl --context kind-storscale -n storscale get projects
 
 The addresses are the same as with Compose. On Kubernetes, every password is generated on install and kept in the Secret `storscale-env`: `storscale up --k8s` prints how to read the people's. `storscale down --k8s` uninstalls the platform; `--volumes` also deletes the cluster.
 
-On another cluster, install the chart, and make the platform's domain (`global.domain`, with `catalog.`, `access.` and `s3.` under it) resolve to the gateway Service. Inside the cluster it has to resolve to the gateway too: on kind, [deploy/kind/dns.sh](deploy/kind/dns.sh) does that with one rule in the cluster's DNS.
+On another cluster, install the chart, and make the platform's domain (`global.domain`, with `catalog.`, `access.` and `s3.` under it) resolve to the gateway Service. Inside the cluster it has to resolve to the gateway too: on kind, [deploy/kind/dns.sh](deploy/kind/dns.sh) does that with one rule in the cluster's DNS. [docs/handoff.md](docs/handoff.md) covers installing on a real cluster, and what hasn't been tested there yet.
 
 ## Licence
 
